@@ -221,6 +221,26 @@ def format_hour(hour):
     return f"{hour_12:02d}:00 {suffix}"
 
 
+def is_inside_park_hours(timestamp_eastern):
+    """
+    Park hours rule:
+    - Friday: 8 AM to 9 PM
+    - All other days: 10 AM to 9 PM
+
+    End hour is exclusive, so 9 PM and later is outside park hours.
+    """
+    if pd.isna(timestamp_eastern):
+        return False
+
+    weekday = timestamp_eastern.day_name()
+    hour = timestamp_eastern.hour
+
+    if weekday == "Friday":
+        return 8 <= hour < 21
+
+    return 10 <= hour < 21
+
+
 def recommendation(current_wait, same_hour_avg, next_hour_avg, is_open):
     if not is_open:
         return "Closed"
@@ -431,8 +451,13 @@ if hide_single_rider:
 if selected_land != "All":
     history_filtered = history_filtered[history_filtered["land_name"] == selected_land]
 
-# Historical wait averages only use valid observations from when rides were open.
+history_filtered["inside_park_hours"] = history_filtered["collected_at_eastern"].apply(
+    is_inside_park_hours
+)
+
+# Historical wait averages only use valid observations from when rides were open and during park hours.
 history_filtered = history_filtered[
+    (history_filtered["inside_park_hours"] == True) &
     (history_filtered["is_open"] == True) &
     (history_filtered["wait_time"].notna()) &
     (history_filtered["wait_time"] >= 0)
@@ -440,13 +465,13 @@ history_filtered = history_filtered[
 
 if history_filtered.empty:
     st.warning(
-        "Historical data loaded, but there are no valid open-ride wait observations "
+        "Historical data loaded, but there are no valid open-ride, in-hours wait observations "
         "after your filters."
     )
     st.stop()
 
 st.caption(
-    f"Using {len(history_filtered):,} valid open-ride snapshot rows from the last "
+    f"Using {len(history_filtered):,} valid open-ride, in-hours snapshot rows from the last "
     f"{history_days} day(s)."
 )
 
@@ -459,6 +484,7 @@ st.subheader("Should I Ride Now?")
 current_hour = pd.Timestamp.now(tz=EASTERN_TZ).hour
 next_hour = (current_hour + 1) % 24
 
+# Same-hour and next-hour averages
 hourly_avg = (
     history_filtered
     .groupby(["ride_id", "ride_name", "collection_hour_eastern"], as_index=False)
@@ -486,6 +512,16 @@ next_hour_avg = next_hour_avg.rename(columns={
     "samples": "next_hour_samples",
 })
 
+# Overall historical average across the selected history window
+overall_avg = (
+    history_filtered
+    .groupby(["ride_id", "ride_name"], as_index=False)
+    .agg(
+        overall_avg_wait=("wait_time", "mean"),
+        overall_samples=("wait_time", "count"),
+    )
+)
+
 comparison_base = live_df.copy()
 
 if hide_single_rider:
@@ -506,8 +542,18 @@ comparison = comparison.merge(
     how="left",
 )
 
+comparison = comparison.merge(
+    overall_avg[["ride_id", "overall_avg_wait", "overall_samples"]],
+    on="ride_id",
+    how="left",
+)
+
 comparison["difference_vs_same_hour"] = (
     comparison["wait_time"] - comparison["same_hour_avg"]
+)
+
+comparison["difference_vs_overall"] = (
+    comparison["wait_time"] - comparison["overall_avg_wait"]
 )
 
 comparison["recommendation"] = comparison.apply(
@@ -538,11 +584,16 @@ open_opportunity_df = comparison[
 if not open_opportunity_df.empty:
     best = open_opportunity_df.sort_values("difference_vs_same_hour").iloc[0]
 
-    b1, b2, b3 = st.columns(3)
+    b1, b2, b3, b4 = st.columns(4)
 
     b1.metric("Best Opportunity", best["ride_name"])
     b2.metric("Current Wait", f"{best['wait_time']:.0f} min")
-    b3.metric("Vs Avg", f"{best['difference_vs_same_hour']:.0f} min")
+    b3.metric("Vs Hour Avg", f"{best['difference_vs_same_hour']:.0f} min")
+
+    if pd.notna(best["difference_vs_overall"]):
+        b4.metric("Vs 30D Avg", f"{best['difference_vs_overall']:.0f} min")
+    else:
+        b4.metric("Vs 30D Avg", "N/A")
 else:
     st.info("No open rides have enough same-hour history for an opportunity score right now.")
 
@@ -553,6 +604,8 @@ decision_table = comparison[[
     "wait_time",
     "same_hour_avg",
     "difference_vs_same_hour",
+    "overall_avg_wait",
+    "difference_vs_overall",
     "next_hour_avg",
     "recommendation",
     "context",
@@ -563,6 +616,14 @@ decision_table["Current Wait"] = decision_table.apply(
     if row["is_open"] and pd.notna(row["wait_time"])
     else "Closed",
     axis=1,
+)
+
+decision_table["same_hour_avg"] = decision_table["same_hour_avg"].apply(
+    lambda x: f"{x:.0f} min" if pd.notna(x) else "N/A"
+)
+
+decision_table["overall_avg_wait"] = decision_table["overall_avg_wait"].apply(
+    lambda x: f"{x:.0f} min" if pd.notna(x) else "N/A"
 )
 
 decision_table = decision_table.sort_values(
@@ -576,8 +637,7 @@ decision_table = decision_table[[
     "ride_name",
     "Current Wait",
     "same_hour_avg",
-    "difference_vs_same_hour",
-    "next_hour_avg",
+    "overall_avg_wait",
     "recommendation",
     "context",
 ]]
@@ -586,8 +646,7 @@ decision_table = decision_table.rename(columns={
     "land_name": "Land",
     "ride_name": "Ride",
     "same_hour_avg": "Hour Avg",
-    "difference_vs_same_hour": "Diff",
-    "next_hour_avg": "Next Avg",
+    "overall_avg_wait": "30D Avg",
     "recommendation": "Rec",
     "context": "Context",
 })
