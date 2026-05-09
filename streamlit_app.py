@@ -25,37 +25,75 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .main {
-        background-color: #eaf4ff;
+    .block-container {
+        padding-top: 1.25rem;
+        padding-bottom: 2rem;
+        max-width: 1250px;
     }
 
-    .block-container {
-        padding-top: 1.5rem;
+    h1, h2, h3 {
+        letter-spacing: -0.02em;
     }
 
     .chart-card {
-        background: #f8fafc;
-        border: 2px solid #a8a8a8;
+        background: rgba(120, 160, 200, 0.10);
+        border: 1px solid rgba(160, 190, 220, 0.35);
         border-radius: 20px;
         padding: 20px;
         margin-bottom: 24px;
-        box-shadow: 2px 4px 8px rgba(0,0,0,0.18);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
     }
 
     .small-badge {
         display: inline-block;
-        border: 2px solid #a8a8a8;
-        border-radius: 8px;
-        padding: 3px 8px;
-        color: #777;
-        font-size: 0.8rem;
+        border: 1px solid rgba(160, 190, 220, 0.45);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
         font-weight: 700;
         margin-bottom: 10px;
-        background: white;
+        background: rgba(120, 160, 200, 0.12);
     }
 
-    h1, h2, h3 {
-        color: #003b70;
+    .section-note {
+        font-size: 0.95rem;
+        margin-top: -0.4rem;
+        margin-bottom: 1rem;
+        opacity: 0.85;
+    }
+
+    div[data-testid="stMetric"] {
+        background: rgba(120, 160, 200, 0.10);
+        border: 1px solid rgba(160, 190, 220, 0.35);
+        padding: 14px 16px;
+        border-radius: 18px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
+    }
+
+    div[data-testid="stMetricLabel"] {
+        font-weight: 700;
+        opacity: 0.9;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(160, 190, 220, 0.25);
+    }
+
+    .stButton > button {
+        border-radius: 999px;
+        border: 1px solid #4c9aff;
+        background: #0f4c81;
+        color: white;
+        font-weight: 700;
+        padding: 0.45rem 1rem;
+    }
+
+    .stButton > button:hover {
+        background: #1769aa;
+        border-color: #7bbcff;
+        color: white;
     }
     </style>
     """,
@@ -332,6 +370,9 @@ def cancel_alert(ride_id):
     return "not_found"
 
 
+# -----------------------------
+# Formatting helpers
+# -----------------------------
 def format_alert_time(value):
     if not value:
         return "—"
@@ -341,6 +382,34 @@ def format_alert_time(value):
         return ts.strftime("%I:%M %p").lstrip("0")
     except Exception:
         return "—"
+
+
+def status_badge(status):
+    status = str(status or "unknown").lower()
+
+    mapping = {
+        "active": "🟢 Active",
+        "triggered": "✅ Triggered",
+        "cancelled": "⚫ Cancelled",
+        "expired": "⏳ Expired",
+        "unknown": "❔ Unknown",
+    }
+
+    return mapping.get(status, f"❔ {status.title()}")
+
+
+def rec_badge(rec):
+    mapping = {
+        "Great time": "✅ Great time",
+        "Ride now": "🎯 Ride now",
+        "Normal": "🟡 Normal",
+        "Maybe wait": "🕒 Maybe wait",
+        "Wait": "🔴 Wait",
+        "Closed": "⚫ Closed",
+        "Need history": "📊 Need history",
+    }
+
+    return mapping.get(rec, rec)
 
 
 def friendly_alert_mode(alert):
@@ -368,7 +437,7 @@ def build_alert_status_table(alerts):
     for alert in alerts:
         rows.append({
             "Ride": alert.get("ride_name", "Unknown"),
-            "Status": alert.get("status", "unknown"),
+            "Status": status_badge(alert.get("status", "unknown")),
             "Mode": friendly_alert_mode(alert),
             "Target": (
                 f"{alert.get('target_wait_time'):.0f} min"
@@ -420,9 +489,6 @@ def get_latest_alert_checker_timestamp(alerts):
     return latest.tz_convert(EASTERN_TZ).strftime("%I:%M %p %Z").lstrip("0")
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def format_hour(hour):
     hour = int(hour)
     suffix = "AM" if hour < 12 else "PM"
@@ -506,6 +572,52 @@ def recommendation_context(current_wait, same_hour_avg, next_hour_avg, is_open):
 
 
 # -----------------------------
+# Reusable UI sections
+# -----------------------------
+def render_current_queue_table(live_filtered):
+    st.subheader("Current Queue Times")
+    st.caption("Live posted waits from the current Queue-Times API response.")
+
+    current_table = live_filtered[[
+        "land_name",
+        "ride_name",
+        "wait_time",
+        "is_open",
+        "last_updated_eastern",
+    ]].copy()
+
+    current_table["display_wait"] = current_table.apply(
+        lambda row: f"{int(row['wait_time'])} min"
+        if row["is_open"] and pd.notna(row["wait_time"])
+        else "Closed",
+        axis=1,
+    )
+
+    current_table = current_table.sort_values(
+        ["land_name", "ride_name"],
+        ascending=[True, True],
+    )
+
+    current_table = current_table[[
+        "land_name",
+        "ride_name",
+        "display_wait",
+        "is_open",
+        "last_updated_eastern",
+    ]]
+
+    current_table = current_table.rename(columns={
+        "land_name": "Land",
+        "ride_name": "Ride",
+        "display_wait": "Wait",
+        "is_open": "Open",
+        "last_updated_eastern": "Updated",
+    })
+
+    st.dataframe(current_table, use_container_width=True, hide_index=True)
+
+
+# -----------------------------
 # Load live data
 # -----------------------------
 try:
@@ -586,52 +698,6 @@ st.divider()
 
 
 # -----------------------------
-# Current queue table
-# -----------------------------
-st.subheader("Current Queue Times")
-
-current_table = live_filtered[[
-    "land_name",
-    "ride_name",
-    "wait_time",
-    "is_open",
-    "last_updated_eastern",
-]].copy()
-
-current_table["display_wait"] = current_table.apply(
-    lambda row: f"{int(row['wait_time'])} min"
-    if row["is_open"] and pd.notna(row["wait_time"])
-    else "Closed",
-    axis=1,
-)
-
-current_table = current_table.sort_values(
-    ["is_open", "wait_time"],
-    ascending=[False, False],
-)
-
-current_table = current_table[[
-    "land_name",
-    "ride_name",
-    "display_wait",
-    "is_open",
-    "last_updated_eastern",
-]]
-
-current_table = current_table.rename(columns={
-    "land_name": "Land",
-    "ride_name": "Ride",
-    "display_wait": "Wait",
-    "is_open": "Open",
-    "last_updated_eastern": "Updated",
-})
-
-st.dataframe(current_table, use_container_width=True, hide_index=True)
-
-st.divider()
-
-
-# -----------------------------
 # Load S3 history
 # -----------------------------
 try:
@@ -639,10 +705,12 @@ try:
 except Exception as e:
     st.error("Could not load S3 history.")
     st.exception(e)
+    render_current_queue_table(live_filtered)
     st.stop()
 
 if history_df.empty:
     st.info("No historical S3 snapshots found yet. Let the Lambda collector run a few times.")
+    render_current_queue_table(live_filtered)
     st.stop()
 
 
@@ -673,6 +741,7 @@ if history_filtered.empty:
         "Historical data loaded, but there are no valid open-ride, in-hours wait observations "
         "after your filters."
     )
+    render_current_queue_table(live_filtered)
     st.stop()
 
 st.caption(
@@ -685,6 +754,7 @@ st.caption(
 # Decision table
 # -----------------------------
 st.subheader("Should I Ride Now?")
+st.caption("Compares current waits against same-hour history and the selected history window.")
 
 current_hour = pd.Timestamp.now(tz=EASTERN_TZ).hour
 next_hour = (current_hour + 1) % 24
@@ -826,9 +896,11 @@ decision_table["overall_avg_wait"] = decision_table["overall_avg_wait"].apply(
     lambda x: f"{x:.0f} min" if pd.notna(x) else "N/A"
 )
 
+decision_table["recommendation"] = decision_table["recommendation"].apply(rec_badge)
+
 decision_table = decision_table.sort_values(
-    ["is_open", "same_hour_avg"],
-    ascending=[False, False],
+    ["land_name", "ride_name"],
+    ascending=[True, True],
     na_position="last",
 )
 
@@ -853,13 +925,13 @@ decision_table = decision_table.rename(columns={
 
 st.dataframe(decision_table, use_container_width=True, hide_index=True)
 
+st.divider()
+
 
 # -----------------------------
 # Notify section
 # -----------------------------
-st.divider()
 st.subheader("Notify Me When Optimal")
-
 st.caption(
     "Choose a target wait time, or let the app notify you when a ride is better than "
     "its normal wait for this hour."
@@ -1015,292 +1087,312 @@ st.divider()
 
 
 # -----------------------------
-# Chart 1: Daily average wait + rolling average
+# Current queue table moved lower
 # -----------------------------
-st.subheader("📊 Epic Universe Average Wait Time")
+render_current_queue_table(live_filtered)
 
-daily_avg = (
-    history_filtered
-    .groupby("collection_date_eastern", as_index=False)
-    .agg(avg_wait=("wait_time", "mean"))
-    .sort_values("collection_date_eastern")
-)
+st.divider()
 
-daily_avg["collection_date_eastern"] = pd.to_datetime(daily_avg["collection_date_eastern"])
-daily_avg["date_label"] = daily_avg["collection_date_eastern"].dt.strftime("%a %m/%d")
-daily_avg["rolling_avg"] = daily_avg["avg_wait"].rolling(window=7, min_periods=1).mean()
 
-latest_date = daily_avg["collection_date_eastern"].max().strftime("%m/%d/%Y")
+# -----------------------------
+# Historical insight charts in tabs
+# -----------------------------
+st.subheader("Historical Insights")
+st.caption("Use these views to understand daily, hourly, ride-specific, and weekday wait patterns.")
 
-st.markdown(
-    f"""
-    <div class="chart-card">
-    <span class="small-badge">DATA THROUGH {latest_date}</span>
-    """,
-    unsafe_allow_html=True,
-)
+tab_daily, tab_heatmap, tab_profile, tab_weekday = st.tabs([
+    "📊 Daily Average",
+    "🔥 Heat Map",
+    "📈 Ride Profile",
+    "📅 Weekday",
+])
 
-bars = (
-    alt.Chart(daily_avg)
-    .mark_bar()
-    .encode(
-        x=alt.X("date_label:N", title="Date", sort=None),
-        y=alt.Y("avg_wait:Q", title="Wait Time (minutes)"),
+
+with tab_daily:
+    st.subheader("📊 Daily Average Wait")
+    st.caption("How busy the park has been over time based on valid open-ride, in-hours snapshots.")
+
+    daily_avg = (
+        history_filtered
+        .groupby("collection_date_eastern", as_index=False)
+        .agg(avg_wait=("wait_time", "mean"))
+        .sort_values("collection_date_eastern")
+    )
+
+    daily_avg["collection_date_eastern"] = pd.to_datetime(daily_avg["collection_date_eastern"])
+    daily_avg["date_label"] = daily_avg["collection_date_eastern"].dt.strftime("%a %m/%d")
+    daily_avg["rolling_avg"] = daily_avg["avg_wait"].rolling(window=7, min_periods=1).mean()
+
+    latest_date = daily_avg["collection_date_eastern"].max().strftime("%m/%d/%Y")
+
+    st.markdown(
+        f"""
+        <div class="chart-card">
+        <span class="small-badge">DATA THROUGH {latest_date}</span>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    bars = (
+        alt.Chart(daily_avg)
+        .mark_bar()
+        .encode(
+            x=alt.X("date_label:N", title="Date", sort=None),
+            y=alt.Y("avg_wait:Q", title="Wait Time (minutes)"),
+            color=alt.Color(
+                "avg_wait:Q",
+                scale=alt.Scale(scheme="redyellowgreen", reverse=True),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("date_label:N", title="Date"),
+                alt.Tooltip("avg_wait:Q", title="Avg Wait", format=".1f"),
+            ],
+        )
+    )
+
+    rolling = (
+        alt.Chart(daily_avg)
+        .mark_line(color="#555555", strokeWidth=3)
+        .encode(
+            x=alt.X("date_label:N", title="Date", sort=None),
+            y="rolling_avg:Q",
+            tooltip=[
+                alt.Tooltip("date_label:N", title="Date"),
+                alt.Tooltip("rolling_avg:Q", title="Rolling Avg", format=".1f"),
+            ],
+        )
+    )
+
+    st.altair_chart((bars + rolling).properties(height=380), use_container_width=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+with tab_heatmap:
+    st.subheader("🔥 Hourly Heat Map")
+    st.caption("Which rides tend to be better or worse at each hour of the day.")
+
+    heatmap_df = (
+        history_filtered
+        .groupby(["ride_name", "collection_hour_eastern"], as_index=False)
+        .agg(avg_wait=("wait_time", "mean"))
+    )
+
+    ride_order = (
+        heatmap_df
+        .groupby("ride_name", as_index=False)
+        .agg(overall_avg=("avg_wait", "mean"))
+        .sort_values("overall_avg", ascending=False)["ride_name"]
+        .tolist()
+    )
+
+    heatmap_df["hour_label"] = heatmap_df["collection_hour_eastern"].apply(format_hour)
+    heatmap_df["avg_wait_label"] = heatmap_df["avg_wait"].round(0).astype(int).astype(str)
+
+    st.markdown(
+        f"""
+        <div class="chart-card">
+        <span class="small-badge">DATA THROUGH {latest_date}</span>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    base = (
+        alt.Chart(heatmap_df)
+        .encode(
+            x=alt.X(
+                "hour_label:N",
+                title="Hour",
+                sort=[format_hour(h) for h in range(24)],
+                axis=alt.Axis(labelAngle=-45),
+            ),
+            y=alt.Y(
+                "ride_name:N",
+                title="Ride",
+                sort=ride_order,
+            ),
+        )
+    )
+
+    heatmap = base.mark_rect().encode(
         color=alt.Color(
             "avg_wait:Q",
+            title="Wait Time",
             scale=alt.Scale(scheme="redyellowgreen", reverse=True),
-            legend=None,
         ),
-        tooltip=[
-            alt.Tooltip("date_label:N", title="Date"),
-            alt.Tooltip("avg_wait:Q", title="Avg Wait", format=".1f"),
-        ],
-    )
-)
-
-rolling = (
-    alt.Chart(daily_avg)
-    .mark_line(color="#555555", strokeWidth=3)
-    .encode(
-        x=alt.X("date_label:N", title="Date", sort=None),
-        y="rolling_avg:Q",
-        tooltip=[
-            alt.Tooltip("date_label:N", title="Date"),
-            alt.Tooltip("rolling_avg:Q", title="Rolling Avg", format=".1f"),
-        ],
-    )
-)
-
-st.altair_chart((bars + rolling).properties(height=380), use_container_width=True)
-
-st.markdown("</div>", unsafe_allow_html=True)
-
-
-# -----------------------------
-# Chart 2: Hourly heat map
-# -----------------------------
-st.subheader("🔥 Epic Universe Wait Time Heat Map")
-
-heatmap_df = (
-    history_filtered
-    .groupby(["ride_name", "collection_hour_eastern"], as_index=False)
-    .agg(avg_wait=("wait_time", "mean"))
-)
-
-ride_order = (
-    heatmap_df
-    .groupby("ride_name", as_index=False)
-    .agg(overall_avg=("avg_wait", "mean"))
-    .sort_values("overall_avg", ascending=False)["ride_name"]
-    .tolist()
-)
-
-heatmap_df["hour_label"] = heatmap_df["collection_hour_eastern"].apply(format_hour)
-heatmap_df["avg_wait_label"] = heatmap_df["avg_wait"].round(0).astype(int).astype(str)
-
-st.markdown(
-    f"""
-    <div class="chart-card">
-    <span class="small-badge">DATA THROUGH {latest_date}</span>
-    """,
-    unsafe_allow_html=True,
-)
-
-base = (
-    alt.Chart(heatmap_df)
-    .encode(
-        x=alt.X(
-            "hour_label:N",
-            title="Hour",
-            sort=[format_hour(h) for h in range(24)],
-            axis=alt.Axis(labelAngle=-45),
-        ),
-        y=alt.Y(
-            "ride_name:N",
-            title="Ride",
-            sort=ride_order,
-        ),
-    )
-)
-
-heatmap = base.mark_rect().encode(
-    color=alt.Color(
-        "avg_wait:Q",
-        title="Wait Time",
-        scale=alt.Scale(scheme="redyellowgreen", reverse=True),
-    ),
-    tooltip=[
-        alt.Tooltip("ride_name:N", title="Ride"),
-        alt.Tooltip("hour_label:N", title="Hour"),
-        alt.Tooltip("avg_wait:Q", title="Avg Wait", format=".1f"),
-    ],
-)
-
-text = base.mark_text(fontSize=10).encode(
-    text="avg_wait_label:N",
-    color=alt.condition(
-        alt.datum.avg_wait > 70,
-        alt.value("white"),
-        alt.value("black"),
-    ),
-)
-
-st.altair_chart(
-    (heatmap + text).properties(height=max(360, len(ride_order) * 28)),
-    use_container_width=True,
-)
-
-st.markdown("</div>", unsafe_allow_html=True)
-
-
-# -----------------------------
-# Chart 3: Selected ride wait profile
-# -----------------------------
-st.subheader("📈 Epic Universe Wait Time Profile")
-
-ride_options = sorted(history_filtered["ride_name"].dropna().unique().tolist())
-
-selected_ride = st.selectbox(
-    "Select ride",
-    ride_options,
-    key="selected_ride_profile",
-)
-
-available_dates = sorted(history_filtered["collection_date_eastern"].dropna().unique().tolist())
-
-selected_date = st.selectbox(
-    "Selected date for posted wait points",
-    available_dates,
-    index=len(available_dates) - 1,
-    key="selected_profile_date",
-)
-
-ride_history = history_filtered[history_filtered["ride_name"] == selected_ride].copy()
-
-typical_wait = (
-    ride_history
-    .groupby("collection_hour_eastern", as_index=False)
-    .agg(typical_wait=("wait_time", "mean"))
-    .sort_values("collection_hour_eastern")
-)
-
-selected_day_points = ride_history[
-    ride_history["collection_date_eastern"] == selected_date
-].copy()
-
-selected_day_points["time_of_day"] = selected_day_points["collected_at_eastern"].dt.tz_localize(None)
-
-base_date = pd.to_datetime(selected_date)
-
-typical_wait["time_of_day"] = typical_wait["collection_hour_eastern"].apply(
-    lambda h: base_date + pd.Timedelta(hours=int(h))
-)
-
-selected_date_label = pd.to_datetime(selected_date).strftime("%m/%d/%Y")
-
-st.markdown(
-    f"""
-    <div class="chart-card">
-    <span class="small-badge">DATA FOR {selected_date_label}</span>
-    """,
-    unsafe_allow_html=True,
-)
-
-typical_line = (
-    alt.Chart(typical_wait)
-    .mark_line(strokeDash=[8, 6], strokeWidth=3, color="#888888")
-    .encode(
-        x=alt.X("time_of_day:T", title="Time of Day"),
-        y=alt.Y("typical_wait:Q", title="Wait Time (minutes)"),
-        tooltip=[
-            alt.Tooltip("collection_hour_eastern:Q", title="Hour"),
-            alt.Tooltip("typical_wait:Q", title="Typical Wait", format=".1f"),
-        ],
-    )
-)
-
-posted_points = (
-    alt.Chart(selected_day_points)
-    .mark_circle(size=85, color="#4c9aff", opacity=0.8)
-    .encode(
-        x="time_of_day:T",
-        y=alt.Y("wait_time:Q", title="Wait Time (minutes)"),
         tooltip=[
             alt.Tooltip("ride_name:N", title="Ride"),
-            alt.Tooltip("time_of_day:T", title="Snapshot Time"),
-            alt.Tooltip("wait_time:Q", title="Posted Wait"),
-        ],
-    )
-)
-
-posted_line = (
-    alt.Chart(selected_day_points)
-    .mark_line(color="#4c9aff", opacity=0.45)
-    .encode(
-        x="time_of_day:T",
-        y="wait_time:Q",
-    )
-)
-
-st.altair_chart(
-    (typical_line + posted_line + posted_points).properties(height=400),
-    use_container_width=True,
-)
-
-st.markdown("</div>", unsafe_allow_html=True)
-
-
-# -----------------------------
-# Chart 4: Average wait by weekday
-# -----------------------------
-st.subheader("📊 Epic Universe Average Wait by Weekday")
-
-weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-weekday_avg = (
-    history_filtered
-    .groupby("collection_weekday_eastern", as_index=False)
-    .agg(avg_wait=("wait_time", "mean"))
-)
-
-weekday_avg["weekday_sort"] = weekday_avg["collection_weekday_eastern"].apply(
-    lambda x: weekday_order.index(x) if x in weekday_order else 99
-)
-
-weekday_avg = weekday_avg.sort_values("weekday_sort")
-
-st.markdown(
-    f"""
-    <div class="chart-card">
-    <span class="small-badge">DATA THROUGH {latest_date}</span>
-    """,
-    unsafe_allow_html=True,
-)
-
-weekday_chart = (
-    alt.Chart(weekday_avg)
-    .mark_bar()
-    .encode(
-        x=alt.X(
-            "collection_weekday_eastern:N",
-            title="Weekday",
-            sort=weekday_order,
-            axis=alt.Axis(labelAngle=-45),
-        ),
-        y=alt.Y("avg_wait:Q", title="Wait Time (minutes)"),
-        color=alt.Color(
-            "avg_wait:Q",
-            scale=alt.Scale(scheme="redyellowgreen", reverse=True),
-            legend=None,
-        ),
-        tooltip=[
-            alt.Tooltip("collection_weekday_eastern:N", title="Weekday"),
+            alt.Tooltip("hour_label:N", title="Hour"),
             alt.Tooltip("avg_wait:Q", title="Avg Wait", format=".1f"),
         ],
     )
-    .properties(height=360)
-)
 
-st.altair_chart(weekday_chart, use_container_width=True)
+    text = base.mark_text(fontSize=10).encode(
+        text="avg_wait_label:N",
+        color=alt.condition(
+            alt.datum.avg_wait > 70,
+            alt.value("white"),
+            alt.value("black"),
+        ),
+    )
 
-st.markdown("</div>", unsafe_allow_html=True)
+    st.altair_chart(
+        (heatmap + text).properties(height=max(360, len(ride_order) * 28)),
+        use_container_width=True,
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+with tab_profile:
+    st.subheader("📈 Ride Profile")
+    st.caption("Compare one ride’s selected-day waits against its typical hourly pattern.")
+
+    ride_options = sorted(history_filtered["ride_name"].dropna().unique().tolist())
+
+    selected_ride = st.selectbox(
+        "Select ride",
+        ride_options,
+        key="selected_ride_profile",
+    )
+
+    available_dates = sorted(history_filtered["collection_date_eastern"].dropna().unique().tolist())
+
+    selected_date = st.selectbox(
+        "Selected date for posted wait points",
+        available_dates,
+        index=len(available_dates) - 1,
+        key="selected_profile_date",
+    )
+
+    ride_history = history_filtered[history_filtered["ride_name"] == selected_ride].copy()
+
+    typical_wait = (
+        ride_history
+        .groupby("collection_hour_eastern", as_index=False)
+        .agg(typical_wait=("wait_time", "mean"))
+        .sort_values("collection_hour_eastern")
+    )
+
+    selected_day_points = ride_history[
+        ride_history["collection_date_eastern"] == selected_date
+    ].copy()
+
+    selected_day_points["time_of_day"] = (
+        selected_day_points["collected_at_eastern"].dt.tz_localize(None)
+    )
+
+    base_date = pd.to_datetime(selected_date)
+
+    typical_wait["time_of_day"] = typical_wait["collection_hour_eastern"].apply(
+        lambda h: base_date + pd.Timedelta(hours=int(h))
+    )
+
+    selected_date_label = pd.to_datetime(selected_date).strftime("%m/%d/%Y")
+
+    st.markdown(
+        f"""
+        <div class="chart-card">
+        <span class="small-badge">DATA FOR {selected_date_label}</span>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    typical_line = (
+        alt.Chart(typical_wait)
+        .mark_line(strokeDash=[8, 6], strokeWidth=3, color="#888888")
+        .encode(
+            x=alt.X("time_of_day:T", title="Time of Day"),
+            y=alt.Y("typical_wait:Q", title="Wait Time (minutes)"),
+            tooltip=[
+                alt.Tooltip("collection_hour_eastern:Q", title="Hour"),
+                alt.Tooltip("typical_wait:Q", title="Typical Wait", format=".1f"),
+            ],
+        )
+    )
+
+    posted_points = (
+        alt.Chart(selected_day_points)
+        .mark_circle(size=85, color="#4c9aff", opacity=0.8)
+        .encode(
+            x="time_of_day:T",
+            y=alt.Y("wait_time:Q", title="Wait Time (minutes)"),
+            tooltip=[
+                alt.Tooltip("ride_name:N", title="Ride"),
+                alt.Tooltip("time_of_day:T", title="Snapshot Time"),
+                alt.Tooltip("wait_time:Q", title="Posted Wait"),
+            ],
+        )
+    )
+
+    posted_line = (
+        alt.Chart(selected_day_points)
+        .mark_line(color="#4c9aff", opacity=0.45)
+        .encode(
+            x="time_of_day:T",
+            y="wait_time:Q",
+        )
+    )
+
+    st.altair_chart(
+        (typical_line + posted_line + posted_points).properties(height=400),
+        use_container_width=True,
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+with tab_weekday:
+    st.subheader("📅 Average Wait by Weekday")
+    st.caption("Which days have been lighter or heavier across your selected history window.")
+
+    weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+    weekday_avg = (
+        history_filtered
+        .groupby("collection_weekday_eastern", as_index=False)
+        .agg(avg_wait=("wait_time", "mean"))
+    )
+
+    weekday_avg["weekday_sort"] = weekday_avg["collection_weekday_eastern"].apply(
+        lambda x: weekday_order.index(x) if x in weekday_order else 99
+    )
+
+    weekday_avg = weekday_avg.sort_values("weekday_sort")
+
+    st.markdown(
+        f"""
+        <div class="chart-card">
+        <span class="small-badge">DATA THROUGH {latest_date}</span>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    weekday_chart = (
+        alt.Chart(weekday_avg)
+        .mark_bar()
+        .encode(
+            x=alt.X(
+                "collection_weekday_eastern:N",
+                title="Weekday",
+                sort=weekday_order,
+                axis=alt.Axis(labelAngle=-45),
+            ),
+            y=alt.Y("avg_wait:Q", title="Wait Time (minutes)"),
+            color=alt.Color(
+                "avg_wait:Q",
+                scale=alt.Scale(scheme="redyellowgreen", reverse=True),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("collection_weekday_eastern:N", title="Weekday"),
+                alt.Tooltip("avg_wait:Q", title="Avg Wait", format=".1f"),
+            ],
+        )
+        .properties(height=360)
+    )
+
+    st.altair_chart(weekday_chart, use_container_width=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
