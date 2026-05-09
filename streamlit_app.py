@@ -15,7 +15,11 @@ PARK_ID = 334
 URL = f"https://queue-times.com/en-US/parks/{PARK_ID}/queue_times.json"
 EASTERN_TZ = "America/New_York"
 
-st.set_page_config(page_title="Epic Universe Waits", layout="wide")
+st.set_page_config(
+    page_title="Epic Universe Waits",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 st.markdown(
     """
@@ -222,13 +226,13 @@ def recommendation(current_wait, same_hour_avg, next_hour_avg, is_open):
         return "Closed"
 
     if pd.isna(same_hour_avg):
-        return "Need more history"
+        return "Need history"
 
     diff = current_wait - same_hour_avg
 
     if pd.notna(next_hour_avg):
         if next_hour_avg <= current_wait - 15:
-            return "Wait if flexible"
+            return "Wait"
         if current_wait <= next_hour_avg - 15:
             return "Ride now"
 
@@ -239,7 +243,7 @@ def recommendation(current_wait, same_hour_avg, next_hour_avg, is_open):
     if diff <= 25:
         return "Maybe wait"
 
-    return "Wait if flexible"
+    return "Wait"
 
 
 def recommendation_context(current_wait, same_hour_avg, next_hour_avg, is_open):
@@ -338,7 +342,7 @@ max_wait = open_live_for_metrics["wait_time"].max()
 open_count = live_filtered["is_open"].sum()
 last_updated = live_filtered["last_updated_eastern"].max()
 
-col1.metric("Average Open-Ride Wait", f"{avg_wait:.0f} min" if pd.notna(avg_wait) else "N/A")
+col1.metric("Avg Open Wait", f"{avg_wait:.0f} min" if pd.notna(avg_wait) else "N/A")
 col2.metric("Longest Open Wait", f"{max_wait:.0f} min" if pd.notna(max_wait) else "N/A")
 col3.metric("Open Attractions", int(open_count))
 col4.metric(
@@ -369,7 +373,9 @@ current_table = live_filtered[[
 ]].copy()
 
 current_table["display_wait"] = current_table.apply(
-    lambda row: f"{int(row['wait_time'])} min" if row["is_open"] and pd.notna(row["wait_time"]) else "Closed",
+    lambda row: f"{int(row['wait_time'])} min"
+    if row["is_open"] and pd.notna(row["wait_time"])
+    else "Closed",
     axis=1,
 )
 
@@ -391,7 +397,7 @@ current_table = current_table.rename(columns={
     "ride_name": "Ride",
     "display_wait": "Wait",
     "is_open": "Open",
-    "last_updated_eastern": "Last Updated Eastern",
+    "last_updated_eastern": "Updated",
 })
 
 st.dataframe(current_table, use_container_width=True, hide_index=True)
@@ -425,9 +431,7 @@ if hide_single_rider:
 if selected_land != "All":
     history_filtered = history_filtered[history_filtered["land_name"] == selected_land]
 
-# Important:
-# Historical wait averages should only use valid observations when rides were open.
-# This prevents closing time and closed rides from distorting the averages.
+# Historical wait averages only use valid observations from when rides were open.
 history_filtered = history_filtered[
     (history_filtered["is_open"] == True) &
     (history_filtered["wait_time"].notna()) &
@@ -538,7 +542,7 @@ if not open_opportunity_df.empty:
 
     b1.metric("Best Opportunity", best["ride_name"])
     b2.metric("Current Wait", f"{best['wait_time']:.0f} min")
-    b3.metric("Vs Same-Hour Avg", f"{best['difference_vs_same_hour']:.0f} min")
+    b3.metric("Vs Avg", f"{best['difference_vs_same_hour']:.0f} min")
 else:
     st.info("No open rides have enough same-hour history for an opportunity score right now.")
 
@@ -550,14 +554,14 @@ decision_table = comparison[[
     "same_hour_avg",
     "difference_vs_same_hour",
     "next_hour_avg",
-    "same_hour_samples",
-    "next_hour_samples",
     "recommendation",
     "context",
 ]].copy()
 
 decision_table["Current Wait"] = decision_table.apply(
-    lambda row: f"{int(row['wait_time'])} min" if row["is_open"] and pd.notna(row["wait_time"]) else "Closed",
+    lambda row: f"{int(row['wait_time'])} min"
+    if row["is_open"] and pd.notna(row["wait_time"])
+    else "Closed",
     axis=1,
 )
 
@@ -574,8 +578,6 @@ decision_table = decision_table[[
     "same_hour_avg",
     "difference_vs_same_hour",
     "next_hour_avg",
-    "same_hour_samples",
-    "next_hour_samples",
     "recommendation",
     "context",
 ]]
@@ -583,12 +585,10 @@ decision_table = decision_table[[
 decision_table = decision_table.rename(columns={
     "land_name": "Land",
     "ride_name": "Ride",
-    "same_hour_avg": "Historical Same-Hour Avg",
-    "difference_vs_same_hour": "Difference",
-    "next_hour_avg": "Historical Next-Hour Avg",
-    "same_hour_samples": "Same-Hour Samples",
-    "next_hour_samples": "Next-Hour Samples",
-    "recommendation": "Recommendation",
+    "same_hour_avg": "Hour Avg",
+    "difference_vs_same_hour": "Diff",
+    "next_hour_avg": "Next Avg",
+    "recommendation": "Rec",
     "context": "Context",
 })
 
