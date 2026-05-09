@@ -14,6 +14,7 @@ import streamlit as st
 PARK_ID = 334
 URL = f"https://queue-times.com/en-US/parks/{PARK_ID}/queue_times.json"
 EASTERN_TZ = "America/New_York"
+ALERTS_KEY = "epic-universe/alerts/active_alerts.json"
 
 st.set_page_config(
     page_title="Epic Universe Waits",
@@ -205,6 +206,85 @@ def load_s3_history(days_back=30):
     history_df["wait_time"] = pd.to_numeric(history_df["wait_time"], errors="coerce")
 
     return history_df
+
+
+def load_alerts_from_s3():
+    s3 = get_s3_client()
+    bucket = st.secrets["S3_BUCKET"]
+
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=ALERTS_KEY)
+        return json.loads(obj["Body"].read().decode("utf-8"))
+    except s3.exceptions.NoSuchKey:
+        return []
+    except Exception:
+        return []
+
+
+def save_alerts_to_s3(alerts):
+    s3 = get_s3_client()
+    bucket = st.secrets["S3_BUCKET"]
+
+    s3.put_object(
+        Bucket=bucket,
+        Key=ALERTS_KEY,
+        Body=json.dumps(alerts, indent=2).encode("utf-8"),
+        ContentType="application/json",
+    )
+
+
+def create_or_restart_alert(ride_id, ride_name):
+    now = pd.Timestamp.now(tz=EASTERN_TZ)
+    today = now.date().isoformat()
+
+    alerts = load_alerts_from_s3()
+
+    existing = None
+    for alert in alerts:
+        if alert.get("ride_id") == ride_id:
+            existing = alert
+            break
+
+    if existing:
+        existing_date = existing.get("created_date_eastern")
+        existing_status = existing.get("status")
+
+        if existing_date == today and existing_status == "active":
+            return "already_active"
+
+        existing.update({
+            "ride_id": int(ride_id),
+            "ride_name": ride_name,
+            "alert_type": "optimal_same_hour",
+            "threshold_below_avg_minutes": 15,
+            "created_at_eastern": now.isoformat(),
+            "created_date_eastern": today,
+            "expires_date_eastern": today,
+            "status": "active",
+            "triggered_at_eastern": None,
+            "last_checked_at_eastern": None,
+        })
+
+        save_alerts_to_s3(alerts)
+        return "restarted"
+
+    new_alert = {
+        "ride_id": int(ride_id),
+        "ride_name": ride_name,
+        "alert_type": "optimal_same_hour",
+        "threshold_below_avg_minutes": 15,
+        "created_at_eastern": now.isoformat(),
+        "created_date_eastern": today,
+        "expires_date_eastern": today,
+        "status": "active",
+        "triggered_at_eastern": None,
+        "last_checked_at_eastern": None,
+    }
+
+    alerts.append(new_alert)
+    save_alerts_to_s3(alerts)
+
+    return "created"
 
 
 # -----------------------------
@@ -652,6 +732,63 @@ decision_table = decision_table.rename(columns={
 })
 
 st.dataframe(decision_table, use_container_width=True, hide_index=True)
+
+
+# -----------------------------
+# Notify section
+# -----------------------------
+st.divider()
+st.subheader("Notify Me When Optimal")
+
+st.caption(
+    "Choose a ride to watch for today. You’ll get one alert when it drops "
+    "15+ minutes below its same-hour average during park hours."
+)
+
+alert_ride_options = (
+    comparison_base[
+        (comparison_base["is_open"] == True) &
+        (~comparison_base["is_single_rider"])
+    ][["ride_id", "ride_name", "land_name"]]
+    .drop_duplicates()
+    .sort_values("ride_name")
+)
+
+if alert_ride_options.empty:
+    st.info("No open rides available for alerts right now.")
+else:
+    alert_labels = {
+        f"{row['ride_name']} — {row['land_name']}": {
+            "ride_id": row["ride_id"],
+            "ride_name": row["ride_name"],
+        }
+        for _, row in alert_ride_options.iterrows()
+    }
+
+    selected_alert_label = st.selectbox(
+        "Ride to watch",
+        list(alert_labels.keys()),
+        key="alert_ride_select",
+    )
+
+    selected_alert = alert_labels[selected_alert_label]
+
+    if st.button("Notify When Optimal", key="notify_when_optimal"):
+        try:
+            result = create_or_restart_alert(
+                selected_alert["ride_id"],
+                selected_alert["ride_name"],
+            )
+
+            if result == "already_active":
+                st.info("Already watching this ride today.")
+            elif result == "restarted":
+                st.success("Restarted watch for today.")
+            else:
+                st.success("Alert successful! I’ll notify you if it becomes optimal.")
+        except Exception as e:
+            st.error("Could not save alert rule to S3.")
+            st.exception(e)
 
 st.divider()
 
