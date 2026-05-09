@@ -270,6 +270,7 @@ def create_or_restart_alert(ride_id, ride_name):
             "status": "active",
             "triggered_at_eastern": None,
             "last_checked_at_eastern": None,
+            "cancelled_at_eastern": None,
         })
 
         save_alerts_to_s3(alerts)
@@ -286,12 +287,95 @@ def create_or_restart_alert(ride_id, ride_name):
         "status": "active",
         "triggered_at_eastern": None,
         "last_checked_at_eastern": None,
+        "cancelled_at_eastern": None,
     }
 
     alerts.append(new_alert)
     save_alerts_to_s3(alerts)
 
     return "created"
+
+
+def cancel_alert(ride_id):
+    now = pd.Timestamp.now(tz=EASTERN_TZ)
+    alerts = load_alerts_from_s3()
+
+    changed = False
+
+    for alert in alerts:
+        if alert.get("ride_id") == ride_id and alert.get("status") == "active":
+            alert["status"] = "cancelled"
+            alert["cancelled_at_eastern"] = now.isoformat()
+            changed = True
+            break
+
+    if changed:
+        save_alerts_to_s3(alerts)
+        return "cancelled"
+
+    return "not_found"
+
+
+def format_alert_time(value):
+    if not value:
+        return "—"
+
+    try:
+        ts = pd.to_datetime(value, utc=True).tz_convert(EASTERN_TZ)
+        return ts.strftime("%I:%M %p").lstrip("0")
+    except Exception:
+        return "—"
+
+
+def build_alert_status_table(alerts):
+    if not alerts:
+        return pd.DataFrame()
+
+    rows = []
+
+    for alert in alerts:
+        rows.append({
+            "Ride": alert.get("ride_name", "Unknown"),
+            "Status": alert.get("status", "unknown"),
+            "Created": format_alert_time(alert.get("created_at_eastern")),
+            "Last Checked": format_alert_time(alert.get("last_checked_at_eastern")),
+            "Triggered": format_alert_time(alert.get("triggered_at_eastern")),
+            "Cancelled": format_alert_time(alert.get("cancelled_at_eastern")),
+            "Mode": alert.get("threshold_mode", "fixed"),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def get_latest_collector_timestamp(history_df):
+    if history_df.empty or "s3_last_modified" not in history_df.columns:
+        return "N/A"
+
+    latest = pd.to_datetime(history_df["s3_last_modified"], utc=True, errors="coerce").max()
+
+    if pd.isna(latest):
+        return "N/A"
+
+    return latest.tz_convert(EASTERN_TZ).strftime("%I:%M %p %Z").lstrip("0")
+
+
+def get_latest_alert_checker_timestamp(alerts):
+    timestamps = []
+
+    for alert in alerts:
+        value = alert.get("last_checked_at_eastern")
+        if value:
+            timestamps.append(value)
+
+    if not timestamps:
+        return "N/A"
+
+    latest = pd.to_datetime(timestamps, utc=True, errors="coerce").max()
+
+    if pd.isna(latest):
+        return "N/A"
+
+    return latest.tz_convert(EASTERN_TZ).strftime("%I:%M %p %Z").lstrip("0")
 
 
 # -----------------------------
@@ -753,6 +837,20 @@ st.caption(
     "better than its same-hour average during park hours. The threshold adapts by ride."
 )
 
+current_alerts = load_alerts_from_s3()
+
+status_col1, status_col2 = st.columns(2)
+status_col1.metric("Last Collector Run", get_latest_collector_timestamp(history_df))
+status_col2.metric("Last Alert Check", get_latest_alert_checker_timestamp(current_alerts))
+
+alert_status_df = build_alert_status_table(current_alerts)
+
+if not alert_status_df.empty:
+    st.markdown("**Active Alert Status**")
+    st.dataframe(alert_status_df, use_container_width=True, hide_index=True)
+else:
+    st.info("No alert watches have been created yet.")
+
 alert_ride_options = (
     comparison_base[
         (comparison_base["is_open"] == True) &
@@ -763,7 +861,7 @@ alert_ride_options = (
 )
 
 if alert_ride_options.empty:
-    st.info("No open rides available for alerts right now.")
+    st.info("No open rides available for new alerts right now.")
 else:
     alert_labels = {
         f"{row['ride_name']} — {row['land_name']}": {
@@ -794,9 +892,42 @@ else:
                 st.success("Restarted watch for today.")
             else:
                 st.success("Alert successful! I’ll notify you if it becomes optimal.")
+
+            st.cache_data.clear()
+            st.rerun()
+
         except Exception as e:
             st.error("Could not save alert rule to S3.")
             st.exception(e)
+
+active_alerts = [
+    alert for alert in current_alerts
+    if alert.get("status") == "active"
+]
+
+if active_alerts:
+    st.markdown("**Cancel Active Watch**")
+
+    cancel_labels = {
+        alert.get("ride_name", f"Ride {alert.get('ride_id')}"): alert.get("ride_id")
+        for alert in active_alerts
+    }
+
+    selected_cancel_label = st.selectbox(
+        "Active watch to cancel",
+        list(cancel_labels.keys()),
+        key="cancel_alert_select",
+    )
+
+    if st.button("Cancel Watch", key="cancel_watch"):
+        result = cancel_alert(cancel_labels[selected_cancel_label])
+
+        if result == "cancelled":
+            st.success("Watch cancelled.")
+            st.cache_data.clear()
+            st.rerun()
+        else:
+            st.info("No active watch found to cancel.")
 
 st.divider()
 
