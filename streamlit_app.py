@@ -297,8 +297,8 @@ def create_or_restart_alert(
         threshold_base = "user_target_wait"
         threshold_mode = "target"
     else:
-        alert_type = "optimal_same_hour"
-        threshold_base = "same_hour_average"
+        alert_type = "optimal_from_request_wait"
+        threshold_base = "request_wait_time"
         threshold_mode = "adaptive"
 
     alerts = load_alerts_from_s3()
@@ -419,11 +419,11 @@ def friendly_alert_mode(alert):
     if threshold_base == "user_target_wait" or alert_type == "target_wait_time":
         return "Target wait"
 
+    if threshold_base == "request_wait_time" or alert_type == "optimal_from_request_wait":
+        return "Drop from when checked"
+
     if threshold_base == "same_hour_average" or alert_type == "optimal_same_hour":
         return "Better than normal"
-
-    if threshold_base == "request_wait_time" or alert_type == "optimal_from_request_wait":
-        return "Drop from now"
 
     return alert.get("threshold_mode", "unknown")
 
@@ -444,7 +444,7 @@ def build_alert_status_table(alerts):
                 if isinstance(alert.get("target_wait_time"), (int, float))
                 else "—"
             ),
-            "Request Wait": (
+            "Wait When Set": (
                 f"{alert.get('request_wait_time'):.0f} min"
                 if isinstance(alert.get("request_wait_time"), (int, float))
                 else "—"
@@ -933,8 +933,8 @@ st.divider()
 # -----------------------------
 st.subheader("Notify Me When Optimal")
 st.caption(
-    "Choose a target wait time, or let the app notify you when a ride is better than "
-    "its normal wait for this hour."
+    "Choose a target wait time, or let the app notify you when a ride drops meaningfully "
+    "from the wait shown when you checked."
 )
 
 all_alerts = load_alerts_from_s3()
@@ -970,9 +970,10 @@ if alert_ride_options.empty:
     st.info("No open rides available for new alerts right now.")
 else:
     alert_labels = {
-        f"{row['ride_name']} — {row['land_name']}": {
+        f"{row['land_name']} — {row['ride_name']}": {
             "ride_id": row["ride_id"],
             "ride_name": row["ride_name"],
+            "land_name": row["land_name"],
             "wait_time": row["wait_time"],
         }
         for _, row in alert_ride_options.iterrows()
@@ -990,7 +991,7 @@ else:
         "Notify me when...",
         [
             "Wait is X minutes or less",
-            "Wait is better than normal for this hour",
+            "Wait drops meaningfully from when I checked",
         ],
         index=0,
         horizontal=False,
@@ -1021,10 +1022,18 @@ else:
             f"**{target_wait_time} minutes or less**."
         )
     else:
-        st.caption(
-            f"Alert me when **{selected_alert['ride_name']}** is meaningfully better "
-            "than its normal wait for this hour."
-        )
+        current_wait_for_caption = selected_alert.get("wait_time")
+
+        if pd.notna(current_wait_for_caption):
+            st.caption(
+                f"Alert me when **{selected_alert['ride_name']}** drops meaningfully "
+                f"below the current **{int(current_wait_for_caption)} min** wait."
+            )
+        else:
+            st.caption(
+                f"Alert me when **{selected_alert['ride_name']}** drops meaningfully "
+                "below the wait shown when I checked."
+            )
 
     if st.button("Notify When Optimal", key="notify_when_optimal"):
         try:
