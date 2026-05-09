@@ -543,11 +543,12 @@ history_filtered["inside_park_hours"] = history_filtered["collected_at_eastern"]
 )
 
 # Historical wait averages only use valid observations from when rides were open and during park hours.
+# Important: exclude 0-minute waits so downtime/closed-status zeros do not drag averages down.
 history_filtered = history_filtered[
     (history_filtered["inside_park_hours"] == True) &
     (history_filtered["is_open"] == True) &
     (history_filtered["wait_time"].notna()) &
-    (history_filtered["wait_time"] >= 0)
+    (history_filtered["wait_time"] > 0)
 ].copy()
 
 if history_filtered.empty:
