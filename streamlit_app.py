@@ -963,7 +963,7 @@ alert_ride_options = (
         (~comparison_base["is_single_rider"])
     ][["ride_id", "ride_name", "land_name", "wait_time"]]
     .drop_duplicates()
-    .sort_values("ride_name")
+    .sort_values(["land_name", "ride_name"], ascending=[True, True])
 )
 
 if alert_ride_options.empty:
