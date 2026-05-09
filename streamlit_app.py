@@ -233,9 +233,35 @@ def save_alerts_to_s3(alerts):
     )
 
 
-def create_or_restart_alert(ride_id, ride_name):
+def create_or_restart_alert(
+    ride_id,
+    ride_name,
+    current_wait_time,
+    alert_mode,
+    target_wait_time=None,
+):
     now = pd.Timestamp.now(tz=EASTERN_TZ)
     today = now.date().isoformat()
+
+    try:
+        current_wait_time = float(current_wait_time)
+    except Exception:
+        current_wait_time = None
+
+    if target_wait_time is not None:
+        try:
+            target_wait_time = float(target_wait_time)
+        except Exception:
+            target_wait_time = None
+
+    if alert_mode == "Wait is X minutes or less":
+        alert_type = "target_wait_time"
+        threshold_base = "user_target_wait"
+        threshold_mode = "target"
+    else:
+        alert_type = "optimal_same_hour"
+        threshold_base = "same_hour_average"
+        threshold_mode = "adaptive"
 
     alerts = load_alerts_from_s3()
 
@@ -245,42 +271,21 @@ def create_or_restart_alert(ride_id, ride_name):
             existing = alert
             break
 
-    adaptive_threshold_fields = {
-        "threshold_mode": "adaptive",
+    threshold_fields = {
+        "threshold_mode": threshold_mode,
         "threshold_percent_below_avg": 0.25,
         "threshold_min_minutes": 8,
         "threshold_max_minutes": 25,
+        "threshold_base": threshold_base,
     }
 
-    if existing:
-        existing_date = existing.get("created_date_eastern")
-        existing_status = existing.get("status")
-
-        if existing_date == today and existing_status == "active":
-            return "already_active"
-
-        existing.update({
-            "ride_id": int(ride_id),
-            "ride_name": ride_name,
-            "alert_type": "optimal_same_hour",
-            **adaptive_threshold_fields,
-            "created_at_eastern": now.isoformat(),
-            "created_date_eastern": today,
-            "expires_date_eastern": today,
-            "status": "active",
-            "triggered_at_eastern": None,
-            "last_checked_at_eastern": None,
-            "cancelled_at_eastern": None,
-        })
-
-        save_alerts_to_s3(alerts)
-        return "restarted"
-
-    new_alert = {
+    base_payload = {
         "ride_id": int(ride_id),
         "ride_name": ride_name,
-        "alert_type": "optimal_same_hour",
-        **adaptive_threshold_fields,
+        "alert_type": alert_type,
+        **threshold_fields,
+        "request_wait_time": current_wait_time,
+        "target_wait_time": target_wait_time,
         "created_at_eastern": now.isoformat(),
         "created_date_eastern": today,
         "expires_date_eastern": today,
@@ -290,7 +295,18 @@ def create_or_restart_alert(ride_id, ride_name):
         "cancelled_at_eastern": None,
     }
 
-    alerts.append(new_alert)
+    if existing:
+        existing_date = existing.get("created_date_eastern")
+        existing_status = existing.get("status")
+
+        if existing_date == today and existing_status == "active":
+            return "already_active"
+
+        existing.update(base_payload)
+        save_alerts_to_s3(alerts)
+        return "restarted"
+
+    alerts.append(base_payload)
     save_alerts_to_s3(alerts)
 
     return "created"
@@ -327,6 +343,22 @@ def format_alert_time(value):
         return "—"
 
 
+def friendly_alert_mode(alert):
+    threshold_base = alert.get("threshold_base")
+    alert_type = alert.get("alert_type")
+
+    if threshold_base == "user_target_wait" or alert_type == "target_wait_time":
+        return "Target wait"
+
+    if threshold_base == "same_hour_average" or alert_type == "optimal_same_hour":
+        return "Better than normal"
+
+    if threshold_base == "request_wait_time" or alert_type == "optimal_from_request_wait":
+        return "Drop from now"
+
+    return alert.get("threshold_mode", "unknown")
+
+
 def build_alert_status_table(alerts):
     if not alerts:
         return pd.DataFrame()
@@ -337,11 +369,21 @@ def build_alert_status_table(alerts):
         rows.append({
             "Ride": alert.get("ride_name", "Unknown"),
             "Status": alert.get("status", "unknown"),
+            "Mode": friendly_alert_mode(alert),
+            "Target": (
+                f"{alert.get('target_wait_time'):.0f} min"
+                if isinstance(alert.get("target_wait_time"), (int, float))
+                else "—"
+            ),
+            "Request Wait": (
+                f"{alert.get('request_wait_time'):.0f} min"
+                if isinstance(alert.get("request_wait_time"), (int, float))
+                else "—"
+            ),
             "Created": format_alert_time(alert.get("created_at_eastern")),
             "Last Checked": format_alert_time(alert.get("last_checked_at_eastern")),
             "Triggered": format_alert_time(alert.get("triggered_at_eastern")),
             "Cancelled": format_alert_time(alert.get("cancelled_at_eastern")),
-            "Mode": alert.get("threshold_mode", "fixed"),
         })
 
     return pd.DataFrame(rows)
@@ -393,13 +435,6 @@ def format_hour(hour):
 
 
 def is_inside_park_hours(timestamp_eastern):
-    """
-    Park hours rule:
-    - Friday: 8 AM to 9 PM
-    - All other days: 10 AM to 9 PM
-
-    End hour is exclusive, so 9 PM and later is outside park hours.
-    """
     if pd.isna(timestamp_eastern):
         return False
 
@@ -626,8 +661,6 @@ history_filtered["inside_park_hours"] = history_filtered["collected_at_eastern"]
     is_inside_park_hours
 )
 
-# Historical wait averages only use valid observations from when rides were open and during park hours.
-# Important: exclude 0-minute waits so downtime/closed-status zeros do not drag averages down.
 history_filtered = history_filtered[
     (history_filtered["inside_park_hours"] == True) &
     (history_filtered["is_open"] == True) &
@@ -656,7 +689,6 @@ st.subheader("Should I Ride Now?")
 current_hour = pd.Timestamp.now(tz=EASTERN_TZ).hour
 next_hour = (current_hour + 1) % 24
 
-# Same-hour and next-hour averages
 hourly_avg = (
     history_filtered
     .groupby(["ride_id", "ride_name", "collection_hour_eastern"], as_index=False)
@@ -684,7 +716,6 @@ next_hour_avg = next_hour_avg.rename(columns={
     "samples": "next_hour_samples",
 })
 
-# Overall historical average across the selected history window
 overall_avg = (
     history_filtered
     .groupby(["ride_id", "ride_name"], as_index=False)
@@ -775,10 +806,7 @@ decision_table = comparison[[
     "is_open",
     "wait_time",
     "same_hour_avg",
-    "difference_vs_same_hour",
     "overall_avg_wait",
-    "difference_vs_overall",
-    "next_hour_avg",
     "recommendation",
     "context",
 ]].copy()
@@ -799,8 +827,8 @@ decision_table["overall_avg_wait"] = decision_table["overall_avg_wait"].apply(
 )
 
 decision_table = decision_table.sort_values(
-    ["is_open", "difference_vs_same_hour"],
-    ascending=[False, True],
+    ["is_open", "same_hour_avg"],
+    ascending=[False, False],
     na_position="last",
 )
 
@@ -833,8 +861,8 @@ st.divider()
 st.subheader("Notify Me When Optimal")
 
 st.caption(
-    "Choose a ride to watch for today. You’ll get one alert when it becomes meaningfully "
-    "better than its same-hour average during park hours. The threshold adapts by ride."
+    "Choose a target wait time, or let the app notify you when a ride is better than "
+    "its normal wait for this hour."
 )
 
 all_alerts = load_alerts_from_s3()
@@ -861,7 +889,7 @@ alert_ride_options = (
     comparison_base[
         (comparison_base["is_open"] == True) &
         (~comparison_base["is_single_rider"])
-    ][["ride_id", "ride_name", "land_name"]]
+    ][["ride_id", "ride_name", "land_name", "wait_time"]]
     .drop_duplicates()
     .sort_values("ride_name")
 )
@@ -873,6 +901,7 @@ else:
         f"{row['ride_name']} — {row['land_name']}": {
             "ride_id": row["ride_id"],
             "ride_name": row["ride_name"],
+            "wait_time": row["wait_time"],
         }
         for _, row in alert_ride_options.iterrows()
     }
@@ -885,22 +914,69 @@ else:
 
     selected_alert = alert_labels[selected_alert_label]
 
+    alert_mode = st.radio(
+        "Notify me when...",
+        [
+            "Wait is X minutes or less",
+            "Wait is better than normal for this hour",
+        ],
+        index=0,
+        horizontal=False,
+        key="alert_mode",
+    )
+
+    target_wait_time = None
+
+    if alert_mode == "Wait is X minutes or less":
+        current_wait_for_default = selected_alert.get("wait_time")
+
+        if pd.notna(current_wait_for_default):
+            default_target = max(5, int(current_wait_for_default) - 10)
+        else:
+            default_target = 30
+
+        target_wait_time = st.slider(
+            "Target wait time",
+            min_value=5,
+            max_value=120,
+            value=min(default_target, 120),
+            step=5,
+            help="You will get one alert today if this ride reaches this wait time or lower.",
+        )
+
+        st.caption(
+            f"Alert me when **{selected_alert['ride_name']}** is "
+            f"**{target_wait_time} minutes or less**."
+        )
+    else:
+        st.caption(
+            f"Alert me when **{selected_alert['ride_name']}** is meaningfully better "
+            "than its normal wait for this hour."
+        )
+
     if st.button("Notify When Optimal", key="notify_when_optimal"):
         try:
             result = create_or_restart_alert(
                 selected_alert["ride_id"],
                 selected_alert["ride_name"],
+                selected_alert["wait_time"],
+                alert_mode,
+                target_wait_time,
             )
 
             if result == "already_active":
-                st.info("Already watching this ride today.")
-            elif result == "restarted":
-                st.success("Restarted watch for today.")
+                st.warning(
+                    "This ride already has an active watch today. "
+                    "Cancel the active watch first if you want to switch alert modes."
+                )
             else:
-                st.success("Alert successful! I’ll notify you if it becomes optimal.")
+                if result == "restarted":
+                    st.success("Restarted watch for today.")
+                else:
+                    st.success("Alert successful! I’ll notify you if it becomes optimal.")
 
-            st.cache_data.clear()
-            st.rerun()
+                st.cache_data.clear()
+                st.rerun()
 
         except Exception as e:
             st.error("Could not save alert rule to S3.")
