@@ -245,6 +245,13 @@ def create_or_restart_alert(ride_id, ride_name):
             existing = alert
             break
 
+    adaptive_threshold_fields = {
+        "threshold_mode": "adaptive",
+        "threshold_percent_below_avg": 0.25,
+        "threshold_min_minutes": 8,
+        "threshold_max_minutes": 25,
+    }
+
     if existing:
         existing_date = existing.get("created_date_eastern")
         existing_status = existing.get("status")
@@ -256,7 +263,7 @@ def create_or_restart_alert(ride_id, ride_name):
             "ride_id": int(ride_id),
             "ride_name": ride_name,
             "alert_type": "optimal_same_hour",
-            "threshold_below_avg_minutes": 15,
+            **adaptive_threshold_fields,
             "created_at_eastern": now.isoformat(),
             "created_date_eastern": today,
             "expires_date_eastern": today,
@@ -272,7 +279,7 @@ def create_or_restart_alert(ride_id, ride_name):
         "ride_id": int(ride_id),
         "ride_name": ride_name,
         "alert_type": "optimal_same_hour",
-        "threshold_below_avg_minutes": 15,
+        **adaptive_threshold_fields,
         "created_at_eastern": now.isoformat(),
         "created_date_eastern": today,
         "expires_date_eastern": today,
@@ -741,8 +748,8 @@ st.divider()
 st.subheader("Notify Me When Optimal")
 
 st.caption(
-    "Choose a ride to watch for today. You’ll get one alert when it drops "
-    "15+ minutes below its same-hour average during park hours."
+    "Choose a ride to watch for today. You’ll get one alert when it becomes meaningfully "
+    "better than its same-hour average during park hours. The threshold adapts by ride."
 )
 
 alert_ride_options = (
