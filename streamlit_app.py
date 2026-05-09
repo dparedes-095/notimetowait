@@ -837,7 +837,13 @@ st.caption(
     "better than its same-hour average during park hours. The threshold adapts by ride."
 )
 
-current_alerts = load_alerts_from_s3()
+all_alerts = load_alerts_from_s3()
+today = pd.Timestamp.now(tz=EASTERN_TZ).date().isoformat()
+
+current_alerts = [
+    alert for alert in all_alerts
+    if alert.get("created_date_eastern") == today
+]
 
 status_col1, status_col2 = st.columns(2)
 status_col1.metric("Last Collector Run", get_latest_collector_timestamp(history_df))
@@ -945,6 +951,7 @@ daily_avg = (
 )
 
 daily_avg["collection_date_eastern"] = pd.to_datetime(daily_avg["collection_date_eastern"])
+daily_avg["date_label"] = daily_avg["collection_date_eastern"].dt.strftime("%a %m/%d")
 daily_avg["rolling_avg"] = daily_avg["avg_wait"].rolling(window=7, min_periods=1).mean()
 
 latest_date = daily_avg["collection_date_eastern"].max().strftime("%m/%d/%Y")
@@ -961,7 +968,7 @@ bars = (
     alt.Chart(daily_avg)
     .mark_bar()
     .encode(
-        x=alt.X("collection_date_eastern:T", title="Date"),
+        x=alt.X("date_label:N", title="Date", sort=None),
         y=alt.Y("avg_wait:Q", title="Wait Time (minutes)"),
         color=alt.Color(
             "avg_wait:Q",
@@ -969,7 +976,7 @@ bars = (
             legend=None,
         ),
         tooltip=[
-            alt.Tooltip("collection_date_eastern:T", title="Date"),
+            alt.Tooltip("date_label:N", title="Date"),
             alt.Tooltip("avg_wait:Q", title="Avg Wait", format=".1f"),
         ],
     )
@@ -979,10 +986,10 @@ rolling = (
     alt.Chart(daily_avg)
     .mark_line(color="#555555", strokeWidth=3)
     .encode(
-        x="collection_date_eastern:T",
+        x=alt.X("date_label:N", title="Date", sort=None),
         y="rolling_avg:Q",
         tooltip=[
-            alt.Tooltip("collection_date_eastern:T", title="Date"),
+            alt.Tooltip("date_label:N", title="Date"),
             alt.Tooltip("rolling_avg:Q", title="Rolling Avg", format=".1f"),
         ],
     )
