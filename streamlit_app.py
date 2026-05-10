@@ -833,16 +833,30 @@ def normalize_ride_name(value):
 
 
 def apply_map_ride_alias(value):
-    """Normalize map attraction names and handle known Queue-Times naming variations."""
+    """Normalize ride names into one canonical key for map/live-data matching."""
     ride_key = normalize_ride_name(value)
 
     aliases = {
-        normalize_ride_name("Hiccup Wing Glider"): normalize_ride_name("Hiccup's Wing Gliders"),
-        normalize_ride_name("Hiccup's Wing Glider"): normalize_ride_name("Hiccup's Wing Gliders"),
-        normalize_ride_name("Hiccup’s Wing Gliders"): normalize_ride_name("Hiccup's Wing Gliders"),
-        normalize_ride_name("Dragon Racer’s Rally"): normalize_ride_name("Dragon Racer's Rally"),
-        normalize_ride_name("Mario Kart™: Bowser’s Challenge"): normalize_ride_name("Mario Kart™: Bowser's Challenge"),
-        normalize_ride_name("Yoshi’s Adventure™"): normalize_ride_name("Yoshi's Adventure™"),
+        # Queue-Times appears to use singular "Hiccup Wing Glider";
+        # the official map/PDF uses "Hiccup’s Wing Gliders".
+        normalize_ride_name("Hiccup Wing Glider"): "hiccup_wing_glider",
+        normalize_ride_name("Hiccup's Wing Glider"): "hiccup_wing_glider",
+        normalize_ride_name("Hiccup’s Wing Glider"): "hiccup_wing_glider",
+        normalize_ride_name("Hiccup's Wing Gliders"): "hiccup_wing_glider",
+        normalize_ride_name("Hiccup’s Wing Gliders"): "hiccup_wing_glider",
+
+        normalize_ride_name("Dragon Racer's Rally"): "dragon_racers_rally",
+        normalize_ride_name("Dragon Racer’s Rally"): "dragon_racers_rally",
+
+        normalize_ride_name("Mario Kart™: Bowser's Challenge"): "mario_kart_bowsers_challenge",
+        normalize_ride_name("Mario Kart™: Bowser’s Challenge"): "mario_kart_bowsers_challenge",
+        normalize_ride_name("Mario Kart: Bowser's Challenge"): "mario_kart_bowsers_challenge",
+        normalize_ride_name("Mario Kart: Bowser’s Challenge"): "mario_kart_bowsers_challenge",
+
+        normalize_ride_name("Yoshi's Adventure™"): "yoshis_adventure",
+        normalize_ride_name("Yoshi’s Adventure™"): "yoshis_adventure",
+        normalize_ride_name("Yoshi's Adventure"): "yoshis_adventure",
+        normalize_ride_name("Yoshi’s Adventure"): "yoshis_adventure",
     }
 
     return aliases.get(ride_key, ride_key)
@@ -874,7 +888,7 @@ def build_wait_map_df(live_df):
     overlay_df["ride_key"] = overlay_df["attraction"].apply(apply_map_ride_alias)
 
     live_map = live_df.copy()
-    live_map["ride_key"] = live_map["ride_name"].apply(normalize_ride_name)
+    live_map["ride_key"] = live_map["ride_name"].apply(apply_map_ride_alias)
 
     live_cols = [
         "ride_key",
@@ -920,11 +934,26 @@ def render_wait_time_overlay_map(map_df):
         x_pct = float(row["x_pct"])
         y_pct = float(row["y_pct"])
 
+        safe_name = html.escape(str(display_name), quote=True)
+        safe_wait_label = html.escape(str(wait_label), quote=True)
+
+        land_value = row.get("land_name")
+        if pd.isna(land_value) or not land_value:
+            land_value = row.get("land", "")
+
+        safe_land = html.escape(str(land_value), quote=True)
+
         marker_html.append(
             f"""
-            <div
+            <button
+                type="button"
                 class="wait-map-marker"
                 title="{tooltip}"
+                aria-label="{tooltip}"
+                data-ride-name="{safe_name}"
+                data-wait-label="{safe_wait_label}"
+                data-land="{safe_land}"
+                onclick="selectRideFromMap(this)"
                 style="
                     left:{x_pct}%;
                     top:{y_pct}%;
@@ -934,7 +963,7 @@ def render_wait_time_overlay_map(map_df):
                 "
             >
                 {style['label']}
-            </div>
+            </button>
             """
         )
 
@@ -973,15 +1002,29 @@ def render_wait_time_overlay_map(map_df):
             line-height: 1;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
             z-index: 5;
-            cursor: help;
+            cursor: pointer;
             user-select: none;
-            transition: transform 120ms ease, box-shadow 120ms ease;
+            transition: transform 120ms ease, box-shadow 120ms ease, outline 120ms ease;
+            appearance: none;
+            -webkit-appearance: none;
         }}
 
-        .wait-map-marker:hover {{
+        .wait-map-marker:hover,
+        .wait-map-marker:focus,
+        .wait-map-marker.active {{
             transform: translate(-50%, -50%) scale(1.14);
             box-shadow: 0 8px 22px rgba(0, 0, 0, 0.42);
+            outline: 3px solid rgba(255, 255, 255, 0.72);
+            outline-offset: 2px;
             z-index: 10;
+        }}
+
+        @media (max-width: 760px) {{
+            .wait-map-marker {{
+                min-width: 38px;
+                height: 38px;
+                font-size: 13px;
+            }}
         }}
 
                 .wait-map-legend {{
@@ -1017,6 +1060,40 @@ def render_wait_time_overlay_map(map_df):
             border: 1px solid rgba(255, 255, 255, 0.65);
             flex: 0 0 auto;
         }}
+
+        .selected-ride-card {{
+            max-width: 720px;
+            margin: 0.75rem auto 0 auto;
+            padding: 14px 18px;
+            border-radius: 18px;
+            border: 1px solid rgba(226, 232, 240, 0.28);
+            background: rgba(15, 23, 42, 0.92);
+            color: #f8fafc;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+            text-align: center;
+        }}
+
+        .selected-ride-kicker {{
+            color: #d8bc7b;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }}
+
+        .selected-ride-name {{
+            font-size: 1.08rem;
+            font-weight: 900;
+            line-height: 1.25;
+        }}
+
+        .selected-ride-meta {{
+            margin-top: 4px;
+            color: rgba(248, 250, 252, 0.78);
+            font-size: 0.92rem;
+            font-weight: 650;
+        }}
     </style>
 
     <div class="wait-map-wrap">
@@ -1048,6 +1125,36 @@ def render_wait_time_overlay_map(map_df):
     ">
         X = currently closed · ? = map point did not match a live Queue-Times ride name
     </div>
+
+    <div id="selected-ride-card" class="selected-ride-card">
+        <div class="selected-ride-kicker">Tap a marker</div>
+        <div class="selected-ride-name">Select a ride to see details</div>
+        <div class="selected-ride-meta">Ride name and current wait will appear here.</div>
+    </div>
+
+    <script>
+        function selectRideFromMap(el) {{
+            const name = el.dataset.rideName || "Unknown ride";
+            const wait = el.dataset.waitLabel || "No wait data";
+            const land = el.dataset.land || "";
+
+            document.querySelectorAll(".wait-map-marker").forEach(marker => {{
+                marker.classList.remove("active");
+            }});
+            el.classList.add("active");
+
+            const card = document.getElementById("selected-ride-card");
+            if (card) {{
+                const landText = land ? land + " · " : "";
+                card.innerHTML = `
+                    <div class="selected-ride-kicker">Selected ride</div>
+                    <div class="selected-ride-name">${{name}}</div>
+                    <div class="selected-ride-meta">${{landText}}${{wait}}</div>
+                `;
+                card.scrollIntoView({{ behavior: "smooth", block: "nearest" }});
+            }}
+        }}
+    </script>
     """
 
     components.html(
