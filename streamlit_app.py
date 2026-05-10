@@ -41,7 +41,7 @@ OVERLAY_POINTS = [
 ]
 
 st.set_page_config(
-    page_title="Epic Universe Day Planner",
+    page_title="Epic Universe Ride Planner!",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -319,7 +319,7 @@ st.markdown(
                 <h1>Epic Universe Day Planner</h1>
                 <p>Live waits, historical patterns, and simple ride timing signals for the day.</p>
             </div>
-            <div class="hero-pill">🎢 Guest Planner</div>
+            <div class="hero-pill">🎢 Day Planner</div>
         </div>
     </div>
     """,
@@ -680,6 +680,117 @@ def build_alert_status_table(alerts):
         })
 
     return pd.DataFrame(rows)
+
+
+
+def render_alert_status_table(alert_status_df):
+    alert_table = alert_status_df[[
+        "Ride",
+        "Status",
+        "Wait When Set",
+        "Triggered",
+    ]].copy()
+
+    alert_table["Ride"] = alert_table["Ride"].apply(
+        lambda value: (
+            f"<span class='alert-ride-name'>{html.escape(str(value))}</span>"
+        )
+    )
+
+    alert_table_html = alert_table.to_html(
+        escape=False,
+        index=False,
+        classes="alert-status-table",
+    )
+
+    alert_table_component_html = f"""
+    <style>
+        .alert-status-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            border-radius: 18px;
+            border: 1px solid rgba(165, 190, 220, 0.22);
+            background: rgba(13, 29, 49, 0.60);
+        }}
+
+        table.alert-status-table {{
+            width: 100%;
+            border-collapse: collapse;
+            color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 0.92rem;
+        }}
+
+        table.alert-status-table th {{
+            text-align: left;
+            padding: 10px 12px;
+            background: rgba(15, 23, 42, 0.92);
+            color: #fff7df;
+            font-weight: 800;
+            white-space: nowrap;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.22);
+        }}
+
+        table.alert-status-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.12);
+            vertical-align: top;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }}
+
+        table.alert-status-table tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        .alert-ride-name {{
+            color: #ffffff;
+            font-weight: 850;
+            line-height: 1.2;
+        }}
+
+        @media (max-width: 760px) {{
+            table.alert-status-table {{
+                font-size: 0.82rem;
+            }}
+
+            table.alert-status-table th,
+            table.alert-status-table td {{
+                padding: 8px 9px;
+            }}
+
+            table.alert-status-table th:nth-child(1),
+            table.alert-status-table td:nth-child(1) {{
+                min-width: 160px;
+                max-width: 210px;
+            }}
+
+            table.alert-status-table th:nth-child(2),
+            table.alert-status-table td:nth-child(2),
+            table.alert-status-table th:nth-child(3),
+            table.alert-status-table td:nth-child(3),
+            table.alert-status-table th:nth-child(4),
+            table.alert-status-table td:nth-child(4) {{
+                white-space: nowrap;
+            }}
+        }}
+    </style>
+
+    <div class="alert-status-wrap">
+        {alert_table_html}
+    </div>
+    """
+
+    alert_table_height = min(
+        900,
+        max(160, 100 + (len(alert_table) * 54)),
+    )
+
+    components.html(
+        alert_table_component_html,
+        height=alert_table_height,
+        scrolling=False,
+    )
 
 
 def get_latest_collector_timestamp(history_df):
@@ -1828,7 +1939,7 @@ alert_status_df = build_alert_status_table(current_alerts)
 
 if not alert_status_df.empty:
     st.markdown("**Today’s alert watches**")
-    st.dataframe(alert_status_df, use_container_width=True, hide_index=True)
+    render_alert_status_table(alert_status_df)
 else:
     st.info("No alert watches have been created yet.")
 
