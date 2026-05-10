@@ -903,7 +903,7 @@ def build_wait_map_df(live_df):
     return overlay_df.merge(live_map[live_cols], on="ride_key", how="left")
 
 
-def render_wait_time_overlay_map(map_df):
+def render_wait_time_overlay_map(map_df, map_zoom=100):
     image_path = get_map_image_path()
 
     if image_path is None:
@@ -912,6 +912,13 @@ def render_wait_time_overlay_map(map_df):
             "or place it next to this app file."
         )
         return
+
+    try:
+        map_zoom = int(map_zoom)
+    except Exception:
+        map_zoom = 100
+
+    map_zoom = max(80, min(map_zoom, 160))
 
     image_b64 = image_to_base64(image_path)
     marker_html = []
@@ -969,10 +976,19 @@ def render_wait_time_overlay_map(map_df):
 
     map_html = f"""
     <style>
+        .wait-map-zoom-shell {{
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 0 0 10px 0;
+            margin-bottom: 0.35rem;
+        }}
+
         .wait-map-wrap {{
             position: relative;
-            width: 100%;
-            max-width: 1180px;
+            width: {map_zoom}%;
+            min-width: 320px;
+            max-width: none;
             margin: 0 auto 1.2rem auto;
             border-radius: 22px;
             overflow: hidden;
@@ -1096,9 +1112,11 @@ def render_wait_time_overlay_map(map_df):
         }}
     </style>
 
-    <div class="wait-map-wrap">
-        <img src="data:image/png;base64,{image_b64}" />
-        {''.join(marker_html)}
+    <div class="wait-map-zoom-shell">
+        <div class="wait-map-wrap">
+            <img src="data:image/png;base64,{image_b64}" />
+            {''.join(marker_html)}
+        </div>
     </div>
 
     <div class="wait-map-legend">
@@ -1254,6 +1272,15 @@ current_open_only = st.sidebar.toggle(
     value=False,
 )
 
+map_zoom = st.sidebar.slider(
+    "Map zoom",
+    min_value=80,
+    max_value=160,
+    value=100,
+    step=10,
+    help="100% keeps the default map size. Higher values zoom in and allow horizontal panning.",
+)
+
 
 # -----------------------------
 # Live filters
@@ -1304,7 +1331,7 @@ if open_live_for_metrics.empty:
 # -----------------------------
 st.markdown("## Park Map")
 wait_map_df = build_wait_map_df(live_df)
-render_wait_time_overlay_map(wait_map_df)
+render_wait_time_overlay_map(wait_map_df, map_zoom=map_zoom)
 
 
 # -----------------------------
