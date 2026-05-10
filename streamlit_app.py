@@ -903,7 +903,7 @@ def build_wait_map_df(live_df):
     return overlay_df.merge(live_map[live_cols], on="ride_key", how="left")
 
 
-def render_wait_time_overlay_map(map_df, map_zoom=100):
+def render_wait_time_overlay_map(map_df):
     image_path = get_map_image_path()
 
     if image_path is None:
@@ -912,15 +912,6 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
             "or place it next to this app file."
         )
         return
-
-    try:
-        map_zoom = int(map_zoom)
-    except Exception:
-        map_zoom = 100
-
-    map_zoom = max(80, min(map_zoom, 160))
-    map_width_px = int(1120 * (map_zoom / 100))
-    component_height = int(1040 * (map_zoom / 100)) if map_zoom <= 100 else 1040
 
     image_b64 = image_to_base64(image_path)
     marker_html = []
@@ -978,18 +969,10 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
 
     map_html = f"""
     <style>
-        .wait-map-zoom-shell {{
-            width: 100%;
-            overflow-x: auto;
-            overflow-y: hidden;
-            padding: 0 0 12px 0;
-            margin-bottom: 0.35rem;
-        }}
-
         .wait-map-wrap {{
             position: relative;
-            width: {map_width_px}px;
-            max-width: none;
+            width: 100%;
+            max-width: 1180px;
             margin: 0 auto 1.2rem auto;
             border-radius: 22px;
             overflow: hidden;
@@ -1001,13 +984,6 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
         .wait-map-wrap img {{
             width: 100%;
             display: block;
-        }}
-
-        .zoom-hint {{
-            text-align: center;
-            color: rgba(248, 250, 252, 0.72);
-            font-size: 0.78rem;
-            margin: -0.35rem 0 0.75rem 0;
         }}
 
         .wait-map-marker {{
@@ -1120,14 +1096,10 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
         }}
     </style>
 
-    <div class="wait-map-zoom-shell">
-        <div class="wait-map-wrap">
-            <img src="data:image/png;base64,{image_b64}" />
-            {''.join(marker_html)}
-        </div>
+    <div class="wait-map-wrap">
+        <img src="data:image/png;base64,{image_b64}" />
+        {''.join(marker_html)}
     </div>
-
-    <div class="zoom-hint">Map zoom: {map_zoom}% · drag sideways if zoomed in</div>
 
     <div class="wait-map-legend">
         <span class="legend-pill"><span class="legend-dot" style="background:#16a34a;"></span> 0–20 min</span>
@@ -1187,7 +1159,7 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
 
     components.html(
         map_html,
-        height=component_height,
+        height=1040,
         scrolling=False,
     )
 
@@ -1282,15 +1254,6 @@ current_open_only = st.sidebar.toggle(
     value=False,
 )
 
-map_zoom = st.sidebar.slider(
-    "Map zoom %",
-    min_value=80,
-    max_value=160,
-    value=100,
-    step=10,
-    help="100% keeps the default map size. Higher values zoom in and allow horizontal panning.",
-)
-
 
 # -----------------------------
 # Live filters
@@ -1341,7 +1304,7 @@ if open_live_for_metrics.empty:
 # -----------------------------
 st.markdown("## Park Map")
 wait_map_df = build_wait_map_df(live_df)
-render_wait_time_overlay_map(wait_map_df, map_zoom=map_zoom)
+render_wait_time_overlay_map(wait_map_df)
 
 
 # -----------------------------
