@@ -1196,28 +1196,142 @@ def render_current_queue_table(live_filtered):
         axis=1,
     )
 
+    current_table["updated_display"] = current_table["last_updated_eastern"].apply(
+        lambda value: value.strftime("%I:%M %p").lstrip("0")
+        if pd.notna(value)
+        else "N/A"
+    )
+
     current_table = current_table.sort_values(
         ["land_name", "ride_name"],
         ascending=[True, True],
     )
 
+    current_table["Attraction"] = current_table.apply(
+        lambda row: (
+            f"<span class='wait-board-land'>{html.escape(str(row['land_name']))} -</span>"
+            f"<br><span class='wait-board-ride'>{html.escape(str(row['ride_name']))}</span>"
+        ),
+        axis=1,
+    )
+
+    current_table["Open"] = current_table["is_open"].apply(
+        lambda value: "Yes" if bool(value) else "No"
+    )
+
     current_table = current_table[[
-        "land_name",
-        "ride_name",
+        "Attraction",
         "display_wait",
-        "is_open",
-        "last_updated_eastern",
+        "Open",
+        "updated_display",
     ]]
 
     current_table = current_table.rename(columns={
-        "land_name": "Land",
-        "ride_name": "Ride",
         "display_wait": "Wait",
-        "is_open": "Open",
-        "last_updated_eastern": "Updated",
+        "updated_display": "Updated",
     })
 
-    st.dataframe(current_table, use_container_width=True, hide_index=True)
+    wait_board_html = current_table.to_html(
+        escape=False,
+        index=False,
+        classes="full-wait-board-table",
+    )
+
+    wait_board_component_html = f"""
+    <style>
+        .full-wait-board-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            border-radius: 18px;
+            border: 1px solid rgba(165, 190, 220, 0.22);
+            background: rgba(13, 29, 49, 0.60);
+        }}
+
+        table.full-wait-board-table {{
+            width: 100%;
+            border-collapse: collapse;
+            color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 0.92rem;
+        }}
+
+        table.full-wait-board-table th {{
+            text-align: left;
+            padding: 10px 12px;
+            background: rgba(15, 23, 42, 0.92);
+            color: #fff7df;
+            font-weight: 800;
+            white-space: nowrap;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.22);
+        }}
+
+        table.full-wait-board-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.12);
+            vertical-align: top;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }}
+
+        table.full-wait-board-table tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        .wait-board-land {{
+            color: rgba(248, 250, 252, 0.72);
+            font-size: 0.82rem;
+            font-weight: 700;
+            line-height: 1.15;
+        }}
+
+        .wait-board-ride {{
+            color: #ffffff;
+            font-weight: 850;
+            line-height: 1.2;
+        }}
+
+        @media (max-width: 760px) {{
+            table.full-wait-board-table {{
+                font-size: 0.82rem;
+            }}
+
+            table.full-wait-board-table th,
+            table.full-wait-board-table td {{
+                padding: 8px 9px;
+            }}
+
+            table.full-wait-board-table th:nth-child(1),
+            table.full-wait-board-table td:nth-child(1) {{
+                min-width: 170px;
+                max-width: 210px;
+            }}
+
+            table.full-wait-board-table th:nth-child(2),
+            table.full-wait-board-table td:nth-child(2),
+            table.full-wait-board-table th:nth-child(3),
+            table.full-wait-board-table td:nth-child(3),
+            table.full-wait-board-table th:nth-child(4),
+            table.full-wait-board-table td:nth-child(4) {{
+                white-space: nowrap;
+            }}
+        }}
+    </style>
+
+    <div class="full-wait-board-wrap">
+        {wait_board_html}
+    </div>
+    """
+
+    wait_board_height = min(
+        1400,
+        max(260, 92 + (len(current_table) * 48)),
+    )
+
+    components.html(
+        wait_board_component_html,
+        height=wait_board_height,
+        scrolling=False,
+    )
 
 
 # -----------------------------
@@ -1539,9 +1653,16 @@ decision_table = decision_table.sort_values(
     na_position="last",
 )
 
+decision_table["Attraction"] = decision_table.apply(
+    lambda row: (
+        f"<span class='best-move-land'>{html.escape(str(row['land_name']))} -</span>"
+        f"<br><span class='best-move-ride'>{html.escape(str(row['ride_name']))}</span>"
+    ),
+    axis=1,
+)
+
 decision_table = decision_table[[
-    "land_name",
-    "ride_name",
+    "Attraction",
     "Current Wait",
     "same_hour_avg",
     "overall_avg_wait",
@@ -1550,15 +1671,110 @@ decision_table = decision_table[[
 ]]
 
 decision_table = decision_table.rename(columns={
-    "land_name": "Land",
-    "ride_name": "Ride",
     "same_hour_avg": "Hour Avg",
     "overall_avg_wait": "30D Avg",
     "recommendation": "Rec",
     "context": "Context",
 })
 
-st.dataframe(decision_table, use_container_width=True, hide_index=True)
+best_moves_html = decision_table.to_html(
+    escape=False,
+    index=False,
+    classes="best-moves-table",
+)
+
+best_moves_component_html = f"""
+<style>
+    .best-moves-wrap {{
+        width: 100%;
+        overflow-x: auto;
+        border-radius: 18px;
+        border: 1px solid rgba(165, 190, 220, 0.22);
+        background: rgba(13, 29, 49, 0.60);
+    }}
+
+    table.best-moves-table {{
+        width: 100%;
+        border-collapse: collapse;
+        color: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 0.92rem;
+    }}
+
+    table.best-moves-table th {{
+        text-align: left;
+        padding: 10px 12px;
+        background: rgba(15, 23, 42, 0.92);
+        color: #fff7df;
+        font-weight: 800;
+        white-space: nowrap;
+        border-bottom: 1px solid rgba(226, 232, 240, 0.22);
+    }}
+
+    table.best-moves-table td {{
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(226, 232, 240, 0.12);
+        vertical-align: top;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }}
+
+    table.best-moves-table tr:last-child td {{
+        border-bottom: none;
+    }}
+
+    .best-move-land {{
+        color: rgba(248, 250, 252, 0.72);
+        font-size: 0.82rem;
+        font-weight: 700;
+        line-height: 1.15;
+    }}
+
+    .best-move-ride {{
+        color: #ffffff;
+        font-weight: 850;
+        line-height: 1.2;
+    }}
+
+    @media (max-width: 760px) {{
+        table.best-moves-table {{
+            font-size: 0.82rem;
+        }}
+
+        table.best-moves-table th,
+        table.best-moves-table td {{
+            padding: 8px 9px;
+        }}
+
+        table.best-moves-table th:nth-child(1),
+        table.best-moves-table td:nth-child(1) {{
+            min-width: 150px;
+            max-width: 180px;
+        }}
+
+        table.best-moves-table th:nth-child(6),
+        table.best-moves-table td:nth-child(6) {{
+            min-width: 160px;
+            max-width: 220px;
+        }}
+    }}
+</style>
+
+<div class="best-moves-wrap">
+    {best_moves_html}
+</div>
+"""
+
+best_moves_height = min(
+    1200,
+    max(260, 92 + (len(decision_table) * 48)),
+)
+
+components.html(
+    best_moves_component_html,
+    height=best_moves_height,
+    scrolling=False,
+)
 
 
 
