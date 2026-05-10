@@ -1,4 +1,9 @@
+import base64
+import html
 import json
+import os
+import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 import altair as alt
@@ -6,6 +11,7 @@ import boto3
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # -----------------------------
@@ -15,6 +21,24 @@ PARK_ID = 334
 URL = f"https://queue-times.com/en-US/parks/{PARK_ID}/queue_times.json"
 EASTERN_TZ = "America/New_York"
 ALERTS_KEY = "epic-universe/alerts/active_alerts.json"
+MAP_IMAGE_PATH = "assets/epic_universe_map_overlay_base.png"
+MAP_IMAGE_FALLBACK_PATH = "epic_universe_map_overlay_base.png"
+
+OVERLAY_POINTS = [
+    {"attraction": "Constellation Carousel", "marker": 2, "land": "Celestial Park", "x_pct": 45.6, "y_pct": 52.6},
+    {"attraction": "Stardust Racers", "marker": 1, "land": "Celestial Park", "x_pct": 65.4, "y_pct": 48.6},
+    {"attraction": "Curse of the Werewolf", "marker": 12, "land": "Dark Universe", "x_pct": 27.6, "y_pct": 42.8},
+    {"attraction": "Monsters Unchained: The Frankenstein Experiment", "marker": 11, "land": "Dark Universe", "x_pct": 27.3, "y_pct": 25.9},
+    {"attraction": "Dragon Racer's Rally", "marker": 19, "land": "How to Train Your Dragon - Isle of Berk", "x_pct": 76.1, "y_pct": 64.7},
+    {"attraction": "Fyre Drill", "marker": 20, "land": "How to Train Your Dragon - Isle of Berk", "x_pct": 67.9, "y_pct": 74.2},
+    {"attraction": "Hiccup's Wing Gliders", "marker": 18, "land": "How to Train Your Dragon - Isle of Berk", "x_pct": 76.9, "y_pct": 68.9},
+    {"attraction": "Meet Toothless and Friends", "marker": 23, "land": "How to Train Your Dragon - Isle of Berk", "x_pct": 64.9, "y_pct": 80.4},
+    {"attraction": "Bowser Jr. Challenge", "marker": None, "land": "Super Nintendo World", "x_pct": 34.7, "y_pct": 65.5},
+    {"attraction": "Mario Kart™: Bowser's Challenge", "marker": 4, "land": "Super Nintendo World", "x_pct": 33.1, "y_pct": 69.4},
+    {"attraction": "Mine-Cart Madness™", "marker": 5, "land": "Super Nintendo World", "x_pct": 18.8, "y_pct": 69.8},
+    {"attraction": "Yoshi's Adventure™", "marker": 6, "land": "Super Nintendo World", "x_pct": 31.6, "y_pct": 63.4},
+    {"attraction": "Harry Potter and the Battle at the Ministry™", "marker": 15, "land": "The Wizarding World of Harry Potter - Ministry of Magic", "x_pct": 69.5, "y_pct": 24.2},
+]
 
 st.set_page_config(
     page_title="Epic Universe Day Planner",
@@ -771,6 +795,269 @@ def recommendation_context(current_wait, same_hour_avg, next_hour_avg, is_open):
     return "Much higher than normal"
 
 
+
+# -----------------------------
+# Park map overlay helpers
+# -----------------------------
+def image_to_base64(path):
+    with open(path, "rb") as file:
+        return base64.b64encode(file.read()).decode("utf-8")
+
+
+def get_map_image_path():
+    if os.path.exists(MAP_IMAGE_PATH):
+        return MAP_IMAGE_PATH
+
+    if os.path.exists(MAP_IMAGE_FALLBACK_PATH):
+        return MAP_IMAGE_FALLBACK_PATH
+
+    return None
+
+
+def normalize_ride_name(value):
+    if pd.isna(value):
+        return ""
+
+    text = str(value)
+    text = unicodedata.normalize("NFKD", text)
+    text = text.replace("’", "'")
+    text = text.replace("‘", "'")
+    text = text.replace("™", "")
+    text = text.replace("®", "")
+    text = text.replace(":", "")
+    text = text.replace("-", " ")
+    text = re.sub(r"\s+", " ", text)
+    text = text.strip().lower()
+
+    return text
+
+
+def apply_map_ride_alias(value):
+    """Normalize map attraction names and handle known Queue-Times naming variations."""
+    ride_key = normalize_ride_name(value)
+
+    aliases = {
+        normalize_ride_name("Hiccup Wing Glider"): normalize_ride_name("Hiccup's Wing Gliders"),
+        normalize_ride_name("Hiccup's Wing Glider"): normalize_ride_name("Hiccup's Wing Gliders"),
+        normalize_ride_name("Hiccup’s Wing Gliders"): normalize_ride_name("Hiccup's Wing Gliders"),
+        normalize_ride_name("Dragon Racer’s Rally"): normalize_ride_name("Dragon Racer's Rally"),
+        normalize_ride_name("Mario Kart™: Bowser’s Challenge"): normalize_ride_name("Mario Kart™: Bowser's Challenge"),
+        normalize_ride_name("Yoshi’s Adventure™"): normalize_ride_name("Yoshi's Adventure™"),
+    }
+
+    return aliases.get(ride_key, ride_key)
+
+
+def get_wait_marker_style(wait_time, is_open):
+    if pd.isna(is_open):
+        return {"label": "?", "background": "#6b7280", "text": "#ffffff", "border": "#ffffff"}
+
+    if is_open is False or is_open == False:
+        return {"label": "X", "background": "#111827", "text": "#ffffff", "border": "#ffffff"}
+
+    if pd.isna(wait_time):
+        return {"label": "?", "background": "#6b7280", "text": "#ffffff", "border": "#ffffff"}
+
+    wait_time = int(wait_time)
+
+    if wait_time <= 20:
+        return {"label": str(wait_time), "background": "#16a34a", "text": "#ffffff", "border": "#ffffff"}
+
+    if wait_time <= 45:
+        return {"label": str(wait_time), "background": "#eab308", "text": "#111827", "border": "#ffffff"}
+
+    return {"label": str(wait_time), "background": "#dc2626", "text": "#ffffff", "border": "#ffffff"}
+
+
+def build_wait_map_df(live_df):
+    overlay_df = pd.DataFrame(OVERLAY_POINTS).copy()
+    overlay_df["ride_key"] = overlay_df["attraction"].apply(apply_map_ride_alias)
+
+    live_map = live_df.copy()
+    live_map["ride_key"] = live_map["ride_name"].apply(normalize_ride_name)
+
+    live_cols = [
+        "ride_key",
+        "ride_id",
+        "ride_name",
+        "land_name",
+        "wait_time",
+        "is_open",
+        "last_updated_eastern",
+    ]
+
+    return overlay_df.merge(live_map[live_cols], on="ride_key", how="left")
+
+
+def render_wait_time_overlay_map(map_df):
+    image_path = get_map_image_path()
+
+    if image_path is None:
+        st.warning(
+            "Map image not found. Add epic_universe_map_overlay_base.png to an assets folder "
+            "or place it next to this app file."
+        )
+        return
+
+    image_b64 = image_to_base64(image_path)
+    marker_html = []
+
+    for _, row in map_df.iterrows():
+        style = get_wait_marker_style(row.get("wait_time"), row.get("is_open"))
+
+        display_name = row.get("ride_name")
+        if pd.isna(display_name) or not display_name:
+            display_name = row.get("attraction", "Unknown attraction")
+
+        if row.get("is_open") is False or row.get("is_open") == False:
+            wait_label = "Closed"
+        elif pd.notna(row.get("wait_time")):
+            wait_label = f"{int(row.get('wait_time'))} min"
+        else:
+            wait_label = "No live data match"
+
+        tooltip = html.escape(f"{display_name} | {wait_label}")
+        x_pct = float(row["x_pct"])
+        y_pct = float(row["y_pct"])
+
+        marker_html.append(
+            f"""
+            <div
+                class="wait-map-marker"
+                title="{tooltip}"
+                style="
+                    left:{x_pct}%;
+                    top:{y_pct}%;
+                    background:{style['background']};
+                    color:{style['text']};
+                    border-color:{style['border']};
+                "
+            >
+                {style['label']}
+            </div>
+            """
+        )
+
+    map_html = f"""
+    <style>
+        .wait-map-wrap {{
+            position: relative;
+            width: 100%;
+            max-width: 1180px;
+            margin: 0 auto 1.2rem auto;
+            border-radius: 22px;
+            overflow: hidden;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+            background: rgba(15, 23, 42, 0.04);
+        }}
+
+        .wait-map-wrap img {{
+            width: 100%;
+            display: block;
+        }}
+
+        .wait-map-marker {{
+            position: absolute;
+            transform: translate(-50%, -50%);
+            min-width: 34px;
+            height: 34px;
+            padding: 0 8px;
+            border-radius: 999px;
+            border: 2px solid white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 13px;
+            line-height: 1;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+            z-index: 5;
+            cursor: help;
+            user-select: none;
+            transition: transform 120ms ease, box-shadow 120ms ease;
+        }}
+
+        .wait-map-marker:hover {{
+            transform: translate(-50%, -50%) scale(1.14);
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.42);
+            z-index: 10;
+        }}
+
+                .wait-map-legend {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+            margin-top: 0.35rem;
+            margin-bottom: 0.55rem;
+            font-size: 0.86rem;
+            color: #f8fafc;
+        }}
+
+        .legend-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(226, 232, 240, 0.42);
+            background: rgba(15, 23, 42, 0.92);
+            color: #f8fafc;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+        }}
+
+        .legend-dot {{
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+            display: inline-block;
+            border: 1px solid rgba(255, 255, 255, 0.65);
+            flex: 0 0 auto;
+        }}
+    </style>
+
+    <div class="wait-map-wrap">
+        <img src="data:image/png;base64,{image_b64}" />
+        {''.join(marker_html)}
+    </div>
+
+    <div class="wait-map-legend">
+        <span class="legend-pill"><span class="legend-dot" style="background:#16a34a;"></span> 0–20 min</span>
+        <span class="legend-pill"><span class="legend-dot" style="background:#eab308;"></span> 21–45 min</span>
+        <span class="legend-pill"><span class="legend-dot" style="background:#dc2626;"></span> 46+ min</span>
+        <span class="legend-pill"><span class="legend-dot" style="background:#111827;"></span> Closed</span>
+        <span class="legend-pill"><span class="legend-dot" style="background:#6b7280;"></span> No data match</span>
+    </div>
+
+    <div style="
+        text-align:center;
+        font-size:0.80rem;
+        margin-top:0.15rem;
+        color:#f8fafc;
+        background:rgba(15, 23, 42, 0.82);
+        border:1px solid rgba(226, 232, 240, 0.22);
+        border-radius:999px;
+        padding:7px 12px;
+        width:max-content;
+        max-width:92%;
+        margin-left:auto;
+        margin-right:auto;
+    ">
+        X = currently closed · ? = map point did not match a live Queue-Times ride name
+    </div>
+    """
+
+    components.html(
+        map_html,
+        height=1040,
+        scrolling=False,
+    )
+
+
+
 # -----------------------------
 # Reusable UI sections
 # -----------------------------
@@ -904,6 +1191,13 @@ if open_live_for_metrics.empty:
         "Live recommendations are paused, but historical charts are still useful."
     )
 
+
+# -----------------------------
+# Park map overlay
+# -----------------------------
+st.markdown("## Park Map")
+wait_map_df = build_wait_map_df(live_df)
+render_wait_time_overlay_map(wait_map_df)
 
 
 # -----------------------------
