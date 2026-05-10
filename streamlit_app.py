@@ -1323,8 +1323,8 @@ def render_current_queue_table(live_filtered):
     """
 
     wait_board_height = min(
-        1400,
-        max(260, 92 + (len(current_table) * 48)),
+        2800,
+        max(360, 130 + (len(current_table) * 74)),
     )
 
     components.html(
@@ -1661,20 +1661,25 @@ decision_table["Attraction"] = decision_table.apply(
     axis=1,
 )
 
+decision_table["Signal"] = decision_table.apply(
+    lambda row: (
+        f"<span class='best-move-rec'>{html.escape(str(row['recommendation']))}</span>"
+        f"<br><span class='best-move-context'>{html.escape(str(row['context']))}</span>"
+    ),
+    axis=1,
+)
+
 decision_table = decision_table[[
     "Attraction",
     "Current Wait",
     "same_hour_avg",
     "overall_avg_wait",
-    "recommendation",
-    "context",
+    "Signal",
 ]]
 
 decision_table = decision_table.rename(columns={
     "same_hour_avg": "Hour Avg",
     "overall_avg_wait": "30D Avg",
-    "recommendation": "Rec",
-    "context": "Context",
 })
 
 best_moves_html = decision_table.to_html(
@@ -1736,26 +1741,50 @@ best_moves_component_html = f"""
         line-height: 1.2;
     }}
 
+    .best-move-rec {{
+        color: #ffffff;
+        font-weight: 850;
+        line-height: 1.2;
+    }}
+
+    .best-move-context {{
+        display: inline-block;
+        margin-top: 3px;
+        color: rgba(248, 250, 252, 0.72);
+        font-size: 0.82rem;
+        font-weight: 650;
+        line-height: 1.25;
+    }}
+
     @media (max-width: 760px) {{
         table.best-moves-table {{
-            font-size: 0.82rem;
+            font-size: 0.80rem;
         }}
 
         table.best-moves-table th,
         table.best-moves-table td {{
-            padding: 8px 9px;
+            padding: 8px 8px;
         }}
 
         table.best-moves-table th:nth-child(1),
         table.best-moves-table td:nth-child(1) {{
-            min-width: 150px;
-            max-width: 180px;
+            min-width: 145px;
+            max-width: 175px;
         }}
 
-        table.best-moves-table th:nth-child(6),
-        table.best-moves-table td:nth-child(6) {{
-            min-width: 160px;
-            max-width: 220px;
+        table.best-moves-table th:nth-child(2),
+        table.best-moves-table td:nth-child(2),
+        table.best-moves-table th:nth-child(3),
+        table.best-moves-table td:nth-child(3),
+        table.best-moves-table th:nth-child(4),
+        table.best-moves-table td:nth-child(4) {{
+            white-space: nowrap;
+        }}
+
+        table.best-moves-table th:nth-child(5),
+        table.best-moves-table td:nth-child(5) {{
+            min-width: 170px;
+            max-width: 230px;
         }}
     }}
 </style>
@@ -1766,8 +1795,8 @@ best_moves_component_html = f"""
 """
 
 best_moves_height = min(
-    1200,
-    max(260, 92 + (len(decision_table) * 48)),
+    2200,
+    max(340, 130 + (len(decision_table) * 74)),
 )
 
 components.html(
