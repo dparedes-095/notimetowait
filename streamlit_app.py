@@ -17,7 +17,7 @@ EASTERN_TZ = "America/New_York"
 ALERTS_KEY = "epic-universe/alerts/active_alerts.json"
 
 st.set_page_config(
-    page_title="Epic Universe Waits",
+    page_title="Epic Universe Day Planner",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -25,91 +25,291 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    :root {
+        --park-bg: #07111f;
+        --park-card: rgba(13, 29, 49, 0.78);
+        --park-card-soft: rgba(28, 49, 77, 0.58);
+        --park-border: rgba(165, 190, 220, 0.24);
+        --park-border-strong: rgba(216, 188, 123, 0.44);
+        --park-text-muted: rgba(245, 247, 250, 0.72);
+        --park-gold: #d8bc7b;
+        --park-blue: #5aa9ff;
+        --park-green: #4ade80;
+        --park-red: #fb7185;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(82, 128, 196, 0.28), transparent 34rem),
+            radial-gradient(circle at top right, rgba(216, 188, 123, 0.12), transparent 30rem),
+            linear-gradient(180deg, #07111f 0%, #0a1423 48%, #07111f 100%);
+    }
+
     .block-container {
-        padding-top: 1.25rem;
-        padding-bottom: 2rem;
-        max-width: 1250px;
+        padding-top: 1.15rem;
+        padding-bottom: 2.5rem;
+        max-width: 1280px;
     }
 
     h1, h2, h3 {
-        letter-spacing: -0.02em;
+        letter-spacing: -0.035em;
     }
 
-    .chart-card {
-        background: rgba(120, 160, 200, 0.10);
-        border: 1px solid rgba(160, 190, 220, 0.35);
-        border-radius: 20px;
-        padding: 20px;
-        margin-bottom: 24px;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    div[data-testid="stVerticalBlock"] > div:has(.hero-card),
+    div[data-testid="stVerticalBlock"] > div:has(.control-card),
+    div[data-testid="stVerticalBlock"] > div:has(.recommendation-card),
+    div[data-testid="stVerticalBlock"] > div:has(.section-shell) {
+        margin-bottom: 0.35rem;
     }
 
+    .hero-card {
+        position: relative;
+        overflow: hidden;
+        border-radius: 30px;
+        padding: 34px 34px 30px 34px;
+        border: 1px solid rgba(216, 188, 123, 0.32);
+        background:
+            linear-gradient(135deg, rgba(17, 38, 65, 0.96), rgba(10, 19, 33, 0.88)),
+            radial-gradient(circle at 80% 10%, rgba(216, 188, 123, 0.23), transparent 18rem);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.33);
+    }
+
+    .hero-card:after {
+        content: "";
+        position: absolute;
+        inset: auto -80px -120px auto;
+        width: 360px;
+        height: 360px;
+        background: radial-gradient(circle, rgba(90, 169, 255, 0.18), transparent 60%);
+        transform: rotate(20deg);
+    }
+
+    .hero-grid {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+    }
+
+    .hero-card h1 {
+        margin: 0;
+        font-size: clamp(2.2rem, 5vw, 4.8rem);
+        line-height: 0.92;
+        color: #fffaf0;
+    }
+
+    .hero-card p {
+        max-width: 720px;
+        margin: 16px 0 0 0;
+        color: var(--park-text-muted);
+        font-size: 1.08rem;
+        line-height: 1.55;
+    }
+
+    .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        color: var(--park-gold);
+        font-size: 0.76rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+    }
+
+    .hero-pill,
     .small-badge {
-        display: inline-block;
-        border: 1px solid rgba(160, 190, 220, 0.45);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid rgba(216, 188, 123, 0.38);
         border-radius: 999px;
-        padding: 4px 10px;
+        padding: 7px 12px;
         font-size: 0.78rem;
-        font-weight: 700;
-        margin-bottom: 10px;
-        background: rgba(120, 160, 200, 0.12);
+        font-weight: 800;
+        color: #fff7df;
+        background: rgba(216, 188, 123, 0.12);
+        white-space: nowrap;
+    }
+
+    .control-card,
+    .section-shell,
+    .chart-card,
+    .recommendation-card {
+        border: 1px solid var(--park-border);
+        border-radius: 24px;
+        background: var(--park-card);
+        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.22);
+        backdrop-filter: blur(8px);
+    }
+
+    .control-card {
+        padding: 18px 20px 6px 20px;
+        margin-top: 18px;
+    }
+
+    .section-shell {
+        padding: 22px 24px;
+        margin: 26px 0 16px 0;
+    }
+
+    .compact-section {
+        padding: 18px 22px;
+    }
+
+    .section-title {
+        margin: 0;
+        font-size: 1.75rem;
+        color: #fffaf0;
     }
 
     .section-note {
-        font-size: 0.95rem;
-        margin-top: -0.4rem;
-        margin-bottom: 1rem;
-        opacity: 0.85;
+        margin-top: 7px;
+        margin-bottom: 0;
+        color: var(--park-text-muted);
+        font-size: 0.98rem;
+        line-height: 1.45;
+    }
+
+    .recommendation-card {
+        padding: 26px 28px;
+        margin: 10px 0 18px 0;
+        border-color: var(--park-border-strong);
+        background:
+            linear-gradient(135deg, rgba(29, 54, 84, 0.92), rgba(15, 29, 48, 0.86)),
+            radial-gradient(circle at 85% 10%, rgba(216, 188, 123, 0.20), transparent 16rem);
+    }
+
+    .recommendation-card h2 {
+        margin: 0 0 10px 0;
+        font-size: clamp(1.8rem, 3vw, 3rem);
+        color: #fffaf0;
+    }
+
+    .recommendation-card p {
+        margin: 0;
+        color: var(--park-text-muted);
+        font-size: 1.02rem;
+        line-height: 1.55;
+    }
+
+    .move-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+    }
+
+    .move-stat {
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        border-radius: 18px;
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.055);
+    }
+
+    .move-label {
+        color: var(--park-text-muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .move-value {
+        margin-top: 4px;
+        color: #ffffff;
+        font-size: 1.35rem;
+        font-weight: 800;
+    }
+
+    .chart-card {
+        padding: 20px;
+        margin-bottom: 24px;
     }
 
     div[data-testid="stMetric"] {
-        background: rgba(120, 160, 200, 0.10);
-        border: 1px solid rgba(160, 190, 220, 0.35);
-        padding: 14px 16px;
-        border-radius: 18px;
-        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
+        background: rgba(13, 29, 49, 0.76);
+        border: 1px solid rgba(165, 190, 220, 0.24);
+        padding: 15px 17px;
+        border-radius: 20px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
     }
 
     div[data-testid="stMetricLabel"] {
-        font-weight: 700;
-        opacity: 0.9;
+        font-weight: 800;
+        opacity: 0.84;
     }
 
     div[data-testid="stDataFrame"] {
-        border-radius: 16px;
+        border-radius: 18px;
         overflow: hidden;
-        border: 1px solid rgba(160, 190, 220, 0.25);
+        border: 1px solid rgba(165, 190, 220, 0.22);
+    }
+
+    div[data-testid="stTabs"] button {
+        border-radius: 999px !important;
+        padding-left: 16px !important;
+        padding-right: 16px !important;
     }
 
     .stButton > button {
         border-radius: 999px;
-        border: 1px solid #4c9aff;
-        background: #0f4c81;
+        border: 1px solid rgba(216, 188, 123, 0.55);
+        background: linear-gradient(135deg, #1e5f94, #0f4c81);
         color: white;
-        font-weight: 700;
-        padding: 0.45rem 1rem;
+        font-weight: 800;
+        padding: 0.52rem 1.05rem;
+        box-shadow: 0 10px 22px rgba(15, 76, 129, 0.28);
     }
 
     .stButton > button:hover {
-        background: #1769aa;
-        border-color: #7bbcff;
+        background: linear-gradient(135deg, #2678b9, #1769aa);
+        border-color: rgba(216, 188, 123, 0.9);
         color: white;
+    }
+
+    @media (max-width: 760px) {
+        .hero-grid,
+        .move-row {
+            display: block;
+        }
+        .hero-pill,
+        .move-stat {
+            margin-top: 12px;
+        }
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.title("🎢 Epic Universe Wait Times")
-st.caption("Live queue data from Queue-Times.com | Historical snapshots from your S3 collector")
-
+st.markdown(
+    """
+    <div class="hero-card">
+        <div class="hero-grid">
+            <div>
+                <div class="eyebrow">✦ Live park intelligence</div>
+                <h1>Epic Universe Day Planner</h1>
+                <p>Live waits, historical patterns, and simple ride timing signals for the day.</p>
+            </div>
+            <div class="hero-pill">🎢 Guest Planner</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # -----------------------------
 # Manual refresh
 # -----------------------------
-if st.button("Refresh data"):
-    st.cache_data.clear()
-    st.rerun()
+refresh_col, spacer_col = st.columns([1, 5])
+with refresh_col:
+    if st.button("↻ Refresh data"):
+        st.cache_data.clear()
+        st.rerun()
 
 
 # -----------------------------
@@ -574,9 +774,18 @@ def recommendation_context(current_wait, same_hour_avg, next_hour_avg, is_open):
 # -----------------------------
 # Reusable UI sections
 # -----------------------------
+def render_section_header(title, note=None, eyebrow=None):
+    if eyebrow:
+        st.caption(eyebrow)
+
+    st.markdown(f"## {title}")
+
+    if note:
+        st.caption(note)
+
+
 def render_current_queue_table(live_filtered):
-    st.subheader("Current Queue Times")
-    st.caption("Live posted waits from the current Queue-Times API response.")
+    render_section_header("Full Wait Board")
 
     current_table = live_filtered[[
         "land_name",
@@ -629,16 +838,13 @@ except Exception as e:
 
 
 # -----------------------------
-# Sidebar filters
+# Sidebar controls
 # -----------------------------
-st.sidebar.header("Filters")
+lands = ["All"] + sorted(live_df["land_name"].dropna().unique().tolist())
 
-hide_single_rider = st.sidebar.toggle("Hide single rider", value=True)
+st.sidebar.header("Plan your view")
 
-current_open_only = st.sidebar.toggle(
-    "Current table: open rides only",
-    value=False,
-)
+selected_land = st.sidebar.selectbox("Park area", lands)
 
 history_days = st.sidebar.slider(
     "History window",
@@ -647,8 +853,12 @@ history_days = st.sidebar.slider(
     value=30,
 )
 
-lands = ["All"] + sorted(live_df["land_name"].dropna().unique().tolist())
-selected_land = st.sidebar.selectbox("Land", lands)
+hide_single_rider = st.sidebar.toggle("Hide single rider", value=True)
+
+current_open_only = st.sidebar.toggle(
+    "Open only",
+    value=False,
+)
 
 
 # -----------------------------
@@ -669,7 +879,7 @@ if selected_land != "All":
 # -----------------------------
 # Current metrics
 # -----------------------------
-st.subheader("Right Now")
+render_section_header("Park Pulse")
 
 open_live_for_metrics = live_filtered[live_filtered["is_open"] == True].copy()
 
@@ -694,7 +904,6 @@ if open_live_for_metrics.empty:
         "Live recommendations are paused, but historical charts are still useful."
     )
 
-st.divider()
 
 
 # -----------------------------
@@ -745,16 +954,14 @@ if history_filtered.empty:
     st.stop()
 
 st.caption(
-    f"Using {len(history_filtered):,} valid open-ride, in-hours snapshot rows from the last "
-    f"{history_days} day(s)."
+    f"{len(history_filtered):,} usable historical rows · last {history_days} day(s)"
 )
 
 
 # -----------------------------
 # Decision table
 # -----------------------------
-st.subheader("Should I Ride Now?")
-st.caption("Compares current waits against same-hour history and the selected history window.")
+st.markdown("## Best Moves Right Now")
 
 current_hour = pd.Timestamp.now(tz=EASTERN_TZ).hour
 next_hour = (current_hour + 1) % 24
@@ -857,16 +1064,43 @@ open_opportunity_df = comparison[
 if not open_opportunity_df.empty:
     best = open_opportunity_df.sort_values("difference_vs_same_hour").iloc[0]
 
-    b1, b2, b3, b4 = st.columns(4)
+    same_hour_delta = best["difference_vs_same_hour"]
+    same_hour_phrase = (
+        f"{abs(same_hour_delta):.0f} minutes better than this hour usually looks"
+        if same_hour_delta < 0
+        else f"{same_hour_delta:.0f} minutes higher than this hour usually looks"
+    )
 
-    b1.metric("Best Opportunity", best["ride_name"])
-    b2.metric("Current Wait", f"{best['wait_time']:.0f} min")
-    b3.metric("Vs Hour Avg", f"{best['difference_vs_same_hour']:.0f} min")
+    overall_delta_label = (
+        f"{best['difference_vs_overall']:.0f} min"
+        if pd.notna(best["difference_vs_overall"])
+        else "N/A"
+    )
 
-    if pd.notna(best["difference_vs_overall"]):
-        b4.metric("Vs 30D Avg", f"{best['difference_vs_overall']:.0f} min")
-    else:
-        b4.metric("Vs 30D Avg", "N/A")
+    st.markdown(
+        f"""
+        <div class="recommendation-card">
+            <div class="eyebrow">Best move right now</div>
+            <h2>{best["ride_name"]}</h2>
+            <p>Current wait is <b>{best['wait_time']:.0f} minutes</b>, which is <b>{same_hour_phrase}</b>. This is the ride I would surface first for a guest-planning view.</p>
+            <div class="move-row">
+                <div class="move-stat">
+                    <div class="move-label">Current wait</div>
+                    <div class="move-value">{best['wait_time']:.0f} min</div>
+                </div>
+                <div class="move-stat">
+                    <div class="move-label">Vs hour avg</div>
+                    <div class="move-value">{same_hour_delta:.0f} min</div>
+                </div>
+                <div class="move-stat">
+                    <div class="move-label">Vs 30D avg</div>
+                    <div class="move-value">{overall_delta_label}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 else:
     st.info("No open rides have enough same-hour history for an opportunity score right now.")
 
@@ -925,17 +1159,12 @@ decision_table = decision_table.rename(columns={
 
 st.dataframe(decision_table, use_container_width=True, hide_index=True)
 
-st.divider()
 
 
 # -----------------------------
 # Notify section
 # -----------------------------
-st.subheader("Notify Me When Optimal")
-st.caption(
-    "Choose a target wait time, or let the app notify you when a ride drops meaningfully "
-    "from the wait shown when you checked."
-)
+render_section_header("Smart Ride Alert")
 
 all_alerts = load_alerts_from_s3()
 today = pd.Timestamp.now(tz=EASTERN_TZ).date().isoformat()
@@ -952,7 +1181,7 @@ status_col2.metric("Last Alert Check", get_latest_alert_checker_timestamp(curren
 alert_status_df = build_alert_status_table(current_alerts)
 
 if not alert_status_df.empty:
-    st.markdown("**Active Alert Status**")
+    st.markdown("**Today’s alert watches**")
     st.dataframe(alert_status_df, use_container_width=True, hide_index=True)
 else:
     st.info("No alert watches have been created yet.")
@@ -1069,7 +1298,7 @@ active_alerts = [
 ]
 
 if active_alerts:
-    st.markdown("**Cancel Active Watch**")
+    st.markdown("**Cancel a watch**")
 
     cancel_labels = {
         alert.get("ride_name", f"Ride {alert.get('ride_id')}"): alert.get("ride_id")
@@ -1092,7 +1321,6 @@ if active_alerts:
         else:
             st.info("No active watch found to cancel.")
 
-st.divider()
 
 
 # -----------------------------
@@ -1100,26 +1328,24 @@ st.divider()
 # -----------------------------
 render_current_queue_table(live_filtered)
 
-st.divider()
 
 
 # -----------------------------
 # Historical insight charts in tabs
 # -----------------------------
-st.subheader("Historical Insights")
-st.caption("Use these views to understand daily, hourly, ride-specific, and weekday wait patterns.")
+render_section_header("Crowd Patterns")
 
-tab_daily, tab_heatmap, tab_profile, tab_weekday = st.tabs([
-    "📊 Daily Average",
+tab_heatmap, tab_profile, tab_daily, tab_weekday = st.tabs([
     "🔥 Heat Map",
     "📈 Ride Profile",
+    "📊 Daily Average",
     "📅 Weekday",
 ])
 
 
 with tab_daily:
     st.subheader("📊 Daily Average Wait")
-    st.caption("How busy the park has been over time based on valid open-ride, in-hours snapshots.")
+    st.caption("Daily average wait from usable snapshots.")
 
     daily_avg = (
         history_filtered
@@ -1180,7 +1406,7 @@ with tab_daily:
 
 with tab_heatmap:
     st.subheader("🔥 Hourly Heat Map")
-    st.caption("Which rides tend to be better or worse at each hour of the day.")
+    st.caption("Average wait by ride and hour.")
 
     heatmap_df = (
         history_filtered
@@ -1256,15 +1482,33 @@ with tab_heatmap:
 
 with tab_profile:
     st.subheader("📈 Ride Profile")
-    st.caption("Compare one ride’s selected-day waits against its typical hourly pattern.")
+    st.caption("Selected day vs typical hourly pattern.")
 
-    ride_options = sorted(history_filtered["ride_name"].dropna().unique().tolist())
+    ride_profile_options = (
+        history_filtered[["ride_id", "ride_name", "land_name"]]
+        .dropna(subset=["ride_name", "land_name"])
+        .drop_duplicates()
+        .sort_values(["land_name", "ride_name"], ascending=[True, True])
+    )
 
-    selected_ride = st.selectbox(
+    ride_profile_labels = {
+        f"{row['land_name']} — {row['ride_name']}": {
+            "ride_id": row["ride_id"],
+            "ride_name": row["ride_name"],
+            "land_name": row["land_name"],
+        }
+        for _, row in ride_profile_options.iterrows()
+    }
+
+    selected_ride_label = st.selectbox(
         "Select ride",
-        ride_options,
+        list(ride_profile_labels.keys()),
         key="selected_ride_profile",
     )
+
+    selected_ride_info = ride_profile_labels[selected_ride_label]
+    selected_ride = selected_ride_info["ride_name"]
+    selected_ride_id = selected_ride_info["ride_id"]
 
     available_dates = sorted(history_filtered["collection_date_eastern"].dropna().unique().tolist())
 
@@ -1275,7 +1519,7 @@ with tab_profile:
         key="selected_profile_date",
     )
 
-    ride_history = history_filtered[history_filtered["ride_name"] == selected_ride].copy()
+    ride_history = history_filtered[history_filtered["ride_id"] == selected_ride_id].copy()
 
     typical_wait = (
         ride_history
@@ -1300,6 +1544,28 @@ with tab_profile:
 
     selected_date_label = pd.to_datetime(selected_date).strftime("%m/%d/%Y")
 
+    chart_max_wait = pd.concat([
+        typical_wait["typical_wait"],
+        selected_day_points["wait_time"],
+    ]).max()
+
+    if pd.notna(chart_max_wait):
+        y_axis_max = max(20, int(((chart_max_wait * 1.15) + 9) // 10 * 10))
+    else:
+        y_axis_max = 120
+
+    wait_y_axis = alt.Y(
+        "typical_wait:Q",
+        title="Wait Time (minutes)",
+        scale=alt.Scale(domain=[0, y_axis_max]),
+    )
+
+    posted_wait_y_axis = alt.Y(
+        "wait_time:Q",
+        title="Wait Time (minutes)",
+        scale=alt.Scale(domain=[0, y_axis_max]),
+    )
+
     st.markdown(
         f"""
         <div class="chart-card">
@@ -1313,7 +1579,7 @@ with tab_profile:
         .mark_line(strokeDash=[8, 6], strokeWidth=3, color="#888888")
         .encode(
             x=alt.X("time_of_day:T", title="Time of Day"),
-            y=alt.Y("typical_wait:Q", title="Wait Time (minutes)"),
+            y=wait_y_axis,
             tooltip=[
                 alt.Tooltip("collection_hour_eastern:Q", title="Hour"),
                 alt.Tooltip("typical_wait:Q", title="Typical Wait", format=".1f"),
@@ -1326,7 +1592,7 @@ with tab_profile:
         .mark_circle(size=85, color="#4c9aff", opacity=0.8)
         .encode(
             x="time_of_day:T",
-            y=alt.Y("wait_time:Q", title="Wait Time (minutes)"),
+            y=posted_wait_y_axis,
             tooltip=[
                 alt.Tooltip("ride_name:N", title="Ride"),
                 alt.Tooltip("time_of_day:T", title="Snapshot Time"),
@@ -1340,7 +1606,7 @@ with tab_profile:
         .mark_line(color="#4c9aff", opacity=0.45)
         .encode(
             x="time_of_day:T",
-            y="wait_time:Q",
+            y=posted_wait_y_axis,
         )
     )
 
@@ -1354,7 +1620,7 @@ with tab_profile:
 
 with tab_weekday:
     st.subheader("📅 Average Wait by Weekday")
-    st.caption("Which days have been lighter or heavier across your selected history window.")
+    st.caption("Average wait by weekday.")
 
     weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
