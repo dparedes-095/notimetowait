@@ -919,6 +919,8 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
         map_zoom = 100
 
     map_zoom = max(80, min(map_zoom, 160))
+    map_width_px = int(1120 * (map_zoom / 100))
+    component_height = int(1040 * (map_zoom / 100)) if map_zoom <= 100 else 1040
 
     image_b64 = image_to_base64(image_path)
     marker_html = []
@@ -980,14 +982,13 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
             width: 100%;
             overflow-x: auto;
             overflow-y: hidden;
-            padding: 0 0 10px 0;
+            padding: 0 0 12px 0;
             margin-bottom: 0.35rem;
         }}
 
         .wait-map-wrap {{
             position: relative;
-            width: {map_zoom}%;
-            min-width: 320px;
+            width: {map_width_px}px;
             max-width: none;
             margin: 0 auto 1.2rem auto;
             border-radius: 22px;
@@ -1000,6 +1001,13 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
         .wait-map-wrap img {{
             width: 100%;
             display: block;
+        }}
+
+        .zoom-hint {{
+            text-align: center;
+            color: rgba(248, 250, 252, 0.72);
+            font-size: 0.78rem;
+            margin: -0.35rem 0 0.75rem 0;
         }}
 
         .wait-map-marker {{
@@ -1119,6 +1127,8 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
         </div>
     </div>
 
+    <div class="zoom-hint">Map zoom: {map_zoom}% · drag sideways if zoomed in</div>
+
     <div class="wait-map-legend">
         <span class="legend-pill"><span class="legend-dot" style="background:#16a34a;"></span> 0–20 min</span>
         <span class="legend-pill"><span class="legend-dot" style="background:#eab308;"></span> 21–45 min</span>
@@ -1177,7 +1187,7 @@ def render_wait_time_overlay_map(map_df, map_zoom=100):
 
     components.html(
         map_html,
-        height=1040,
+        height=component_height,
         scrolling=False,
     )
 
@@ -1273,7 +1283,7 @@ current_open_only = st.sidebar.toggle(
 )
 
 map_zoom = st.sidebar.slider(
-    "Map zoom",
+    "Map zoom %",
     min_value=80,
     max_value=160,
     value=100,
