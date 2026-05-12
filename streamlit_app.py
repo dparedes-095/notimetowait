@@ -17,14 +17,9 @@ import streamlit.components.v1 as components
 # -----------------------------
 # Config
 # -----------------------------
-PARK_ID = 334
-URL = f"https://queue-times.com/en-US/parks/{PARK_ID}/queue_times.json"
 EASTERN_TZ = "America/New_York"
-ALERTS_KEY = "epic-universe/alerts/active_alerts.json"
-MAP_IMAGE_PATH = "assets/epic_universe_map_overlay_base.png"
-MAP_IMAGE_FALLBACK_PATH = "epic_universe_map_overlay_base.png"
 
-OVERLAY_POINTS = [
+EPIC_OVERLAY_POINTS = [
     {"attraction": "Constellation Carousel", "marker": 2, "land": "Celestial Park", "x_pct": 45.6, "y_pct": 52.6},
     {"attraction": "Stardust Racers", "marker": 1, "land": "Celestial Park", "x_pct": 65.4, "y_pct": 48.6},
     {"attraction": "Curse of the Werewolf", "marker": 12, "land": "Dark Universe", "x_pct": 27.6, "y_pct": 42.8},
@@ -40,11 +35,90 @@ OVERLAY_POINTS = [
     {"attraction": "Harry Potter and the Battle at the Ministry™", "marker": 15, "land": "The Wizarding World of Harry Potter - Ministry of Magic", "x_pct": 69.5, "y_pct": 24.2},
 ]
 
+IOA_OVERLAY_POINTS = [
+    # MARVEL SUPER HERO ISLAND
+    {"attraction": "The Incredible Hulk Coaster®", "marker": 1, "land": "Marvel Super Hero Island", "x_pct": 49.7, "y_pct": 77.2},
+    {"attraction": "Storm Force Accelatron®", "marker": 2, "land": "Marvel Super Hero Island", "x_pct": 46.6, "y_pct": 78.0},
+    {"attraction": "Doctor Doom's Fearfall®", "marker": 3, "land": "Marvel Super Hero Island", "x_pct": 41.8, "y_pct": 71.6},
+    {"attraction": "The Amazing Adventures of Spider-Man®", "marker": 4, "land": "Marvel Super Hero Island", "x_pct": 41.9, "y_pct": 66.1},
+
+    # TOON LAGOON
+    {"attraction": "Me Ship, The Olive®", "marker": 7, "land": "Toon Lagoon", "x_pct": 45.8, "y_pct": 50.1},
+    {"attraction": "Popeye & Bluto's Bilge-Rat Barges®", "marker": 8, "land": "Toon Lagoon", "x_pct": 39.8, "y_pct": 47.5},
+    {"attraction": "Dudley Do-Right's Ripsaw Falls®", "marker": 9, "land": "Toon Lagoon", "x_pct": 29.5, "y_pct": 48.4},
+
+    # SKULL ISLAND
+    {"attraction": "Skull Island: Reign of Kong™", "marker": 10, "land": "Jurassic Park", "x_pct": 28.3, "y_pct": 31.6},
+
+    # JURASSIC PARK
+    {"attraction": "Camp Jurassic™", "marker": 11, "land": "Jurassic Park", "x_pct": 35.4, "y_pct": 31.1},
+    {"attraction": "Pteranodon Flyers™", "marker": 12, "land": "Jurassic Park", "x_pct": 37.2, "y_pct": 30.3},
+    {"attraction": "Jurassic Park River Adventure™", "marker": 13, "land": "Jurassic Park", "x_pct": 42.3, "y_pct": 28.4},
+    {"attraction": "Raptor Encounter", "marker": 14, "land": "Jurassic Park", "x_pct": 45.7, "y_pct": 26.2},
+    {"attraction": "Jurassic Park Discovery Center™", "marker": 15, "land": "Jurassic Park", "x_pct": 52.8, "y_pct": 33.3},
+    {"attraction": "Jurassic World VelociCoaster", "marker": 16, "land": "Jurassic Park", "x_pct": 52.6, "y_pct": 39.1},
+
+    # HOGSMEADE
+    {"attraction": "Harry Potter and the Forbidden Journey™", "marker": 17, "land": "The Wizarding World of Harry Potter - Hogsmeade", "x_pct": 61.4, "y_pct": 25.3},
+    {"attraction": "Flight of the Hippogriff™", "marker": 18, "land": "The Wizarding World of Harry Potter - Hogsmeade", "x_pct": 64.6, "y_pct": 24.3},
+    {"attraction": "Ollivanders™ Experience in Hogsmeade™", "marker": 20, "land": "The Wizarding World of Harry Potter - Hogsmeade", "x_pct": 68.3, "y_pct": 29.9},
+    {"attraction": "Hagrid's Magical Creatures Motorbike Adventure™", "marker": 21, "land": "The Wizarding World of Harry Potter - Hogsmeade", "x_pct": 72.5, "y_pct": 32.1},
+    {"attraction": "Hogwarts™ Express - Hogsmeade™ Station", "marker": 22, "land": "The Wizarding World of Harry Potter - Hogsmeade", "x_pct": 75.5, "y_pct": 37.4},
+
+    # LOST CONTINENT
+    {"attraction": "The Mystic Fountain", "marker": 23, "land": "The Lost Continent", "x_pct": 75.5, "y_pct": 40.0},
+
+    # SEUSS LANDING
+    {"attraction": "The High in the Sky Seuss Trolley Train Ride!™", "marker": 24, "land": "Seuss Landing", "x_pct": 72.2, "y_pct": 62.0},
+    {"attraction": "Caro-Seuss-el™", "marker": 25, "land": "Seuss Landing", "x_pct": 69.9, "y_pct": 67.8},
+    {"attraction": "One Fish, Two Fish, Red Fish, Blue Fish™", "marker": 28, "land": "Seuss Landing", "x_pct": 72.4, "y_pct": 72.5},
+    {"attraction": "The Cat in The Hat™", "marker": 29, "land": "Seuss Landing", "x_pct": 68.7, "y_pct": 76.1},
+    {"attraction": "If I Ran The Zoo™", "marker": 30, "land": "Seuss Landing", "x_pct": 66.2, "y_pct": 69.7},
+]
+
+PARK_CONFIG = {
+    "Epic Universe": {
+        "park_id": 334,
+        "hero_title": "Epic Universe Day Planner",
+        "alerts_key": "epic-universe/alerts/active_alerts.json",
+        "s3_prefix": st.secrets.get("S3_PREFIX", "epic-universe/wait-times"),
+        "map_image_path": "assets/epic_universe_map_overlay_base.png",
+        "map_image_fallback_path": "epic_universe_map_overlay_base.png",
+        "overlay_points": EPIC_OVERLAY_POINTS,
+    },
+    "Islands of Adventure": {
+        "park_id": 64,
+        "hero_title": "Islands of Adventure Day Planner",
+        "alerts_key": "islands-of-adventure/alerts/active_alerts.json",
+        "s3_prefix": "islands-of-adventure/wait-times",
+        "map_image_path": "assets/islands_of_adventure_map_overlay_base.png",
+        "map_image_fallback_path": "islands_of_adventure_map_overlay_base.png",
+        "overlay_points": IOA_OVERLAY_POINTS,
+    },
+}
+
 st.set_page_config(
-    page_title="Epic Universe Ride Planner!",
+    page_title="Universal Ride Planner!",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+selected_park = st.sidebar.selectbox(
+    "Park",
+    list(PARK_CONFIG.keys()),
+    index=0,
+)
+
+ACTIVE_PARK = PARK_CONFIG[selected_park]
+
+PARK_ID = ACTIVE_PARK["park_id"]
+URL = f"https://queue-times.com/en-US/parks/{PARK_ID}/queue_times.json"
+ALERTS_KEY = ACTIVE_PARK["alerts_key"]
+S3_PREFIX = ACTIVE_PARK["s3_prefix"]
+MAP_IMAGE_PATH = ACTIVE_PARK["map_image_path"]
+MAP_IMAGE_FALLBACK_PATH = ACTIVE_PARK["map_image_fallback_path"]
+OVERLAY_POINTS = ACTIVE_PARK["overlay_points"]
+HERO_TITLE = ACTIVE_PARK["hero_title"]
 
 st.markdown(
     """
@@ -311,12 +385,12 @@ st.markdown(
 )
 
 st.markdown(
-    """
+    f"""
     <div class="hero-card">
         <div class="hero-grid">
             <div>
                 <div class="eyebrow">✦ Live park intelligence</div>
-                <h1>Epic Universe Day Planner</h1>
+                <h1>{HERO_TITLE}</h1>
                 <p>Live waits, historical patterns, and simple ride timing signals for the day.</p>
             </div>
             <div class="hero-pill">🎢 Day Planner</div>
@@ -340,8 +414,8 @@ with refresh_col:
 # Live API fetch
 # -----------------------------
 @st.cache_data(ttl=300)
-def fetch_wait_times():
-    response = requests.get(URL, timeout=10)
+def fetch_wait_times(url):
+    response = requests.get(url, timeout=10)
     response.raise_for_status()
     data = response.json()
 
@@ -390,9 +464,9 @@ def get_s3_client():
 
 
 @st.cache_data(ttl=300)
-def load_s3_history(days_back=30):
+def load_s3_history(days_back=30, s3_prefix=None):
     bucket = st.secrets["S3_BUCKET"]
-    prefix = st.secrets["S3_PREFIX"].rstrip("/")
+    prefix = (s3_prefix or st.secrets["S3_PREFIX"]).rstrip("/")
 
     s3 = get_s3_client()
 
@@ -968,6 +1042,31 @@ def apply_map_ride_alias(value):
         normalize_ride_name("Yoshi’s Adventure™"): "yoshis_adventure",
         normalize_ride_name("Yoshi's Adventure"): "yoshis_adventure",
         normalize_ride_name("Yoshi’s Adventure"): "yoshis_adventure",
+
+        # Islands of Adventure aliases
+        normalize_ride_name("Doctor Doom’s Fearfall"): "doctor_dooms_fearfall",
+        normalize_ride_name("Doctor Doom's Fearfall"): "doctor_dooms_fearfall",
+
+        normalize_ride_name("Popeye & Bluto’s Bilge-Rat Barges"): "popeye_blutos_bilge_rat_barges",
+        normalize_ride_name("Popeye & Bluto's Bilge-Rat Barges"): "popeye_blutos_bilge_rat_barges",
+
+        normalize_ride_name("Dudley Do-Right’s Ripsaw Falls"): "dudley_do_rights_ripsaw_falls",
+        normalize_ride_name("Dudley Do-Right's Ripsaw Falls"): "dudley_do_rights_ripsaw_falls",
+
+        normalize_ride_name("Ollivanders"): "ollivanders_hogsmeade",
+        normalize_ride_name("Ollivanders™ Experience in Hogsmeade™"): "ollivanders_hogsmeade",
+        normalize_ride_name("Ollivanders Experience in Hogsmeade"): "ollivanders_hogsmeade",
+
+        normalize_ride_name("Hogwarts Express – Hogsmeade Station"): "hogwarts_express_hogsmeade_station",
+        normalize_ride_name("Hogwarts™ Express - Hogsmeade™ Station"): "hogwarts_express_hogsmeade_station",
+        normalize_ride_name("Hogwarts Express - Hogsmeade Station"): "hogwarts_express_hogsmeade_station",
+
+        normalize_ride_name("The High in the Sky Seuss Trolley Train Ride"): "high_in_the_sky_seuss_trolley_train_ride",
+        normalize_ride_name("The High in the Sky Seuss Trolley Train Ride!"): "high_in_the_sky_seuss_trolley_train_ride",
+        normalize_ride_name("The High in the Sky Seuss Trolley Train Ride!™"): "high_in_the_sky_seuss_trolley_train_ride",
+
+        normalize_ride_name("The Cat in the Hat"): "the_cat_in_the_hat",
+        normalize_ride_name("The Cat in The Hat™"): "the_cat_in_the_hat",
     }
 
     return aliases.get(ride_key, ride_key)
@@ -1019,7 +1118,7 @@ def render_wait_time_overlay_map(map_df):
 
     if image_path is None:
         st.warning(
-            "Map image not found. Add epic_universe_map_overlay_base.png to an assets folder "
+            f"Map image not found for {selected_park}. Add the configured map image to assets "
             "or place it next to this app file."
         )
         return
@@ -1449,7 +1548,7 @@ def render_current_queue_table(live_filtered):
 # Load live data
 # -----------------------------
 try:
-    live_df = fetch_wait_times()
+    live_df = fetch_wait_times(URL)
 except Exception as e:
     st.error("Could not fetch live Queue-Times data.")
     st.exception(e)
@@ -1533,10 +1632,22 @@ render_wait_time_overlay_map(wait_map_df)
 
 
 # -----------------------------
+# IOA temporary live-map-only mode
+# -----------------------------
+if selected_park == "Islands of Adventure":
+    st.info(
+        "S3 history and alert features are temporarily disabled for Islands of Adventure. "
+        "Showing the live map and current wait board only."
+    )
+    render_current_queue_table(live_filtered)
+    st.stop()
+
+
+# -----------------------------
 # Load S3 history
 # -----------------------------
 try:
-    history_df = load_s3_history(days_back=history_days)
+    history_df = load_s3_history(days_back=history_days, s3_prefix=S3_PREFIX)
 except Exception as e:
     st.error("Could not load S3 history.")
     st.exception(e)
@@ -1708,7 +1819,7 @@ if not open_opportunity_df.empty:
         <div class="recommendation-card">
             <div class="eyebrow">Best move right now</div>
             <h2>{best["ride_name"]}</h2>
-            <p>Current wait is <b>{best['wait_time']:.0f} minutes</b>, which is <b>{same_hour_phrase}</b>. This is the ride I would surface first for a guest-planning view.</p>
+            <p>Current wait is <b>{best['wait_time']:.0f} minutes</b>, which is <b>{same_hour_phrase}</b>. Now might be a good time to ride!</p>
             <div class="move-row">
                 <div class="move-stat">
                     <div class="move-label">Current wait</div>
