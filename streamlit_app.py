@@ -328,6 +328,31 @@ st.markdown(
         margin-bottom: 24px;
     }
 
+
+    .gpt-game-plan-card {
+        border: 1px solid rgba(90, 169, 255, 0.34);
+        border-radius: 24px;
+        padding: 22px 24px;
+        margin: -4px 0 22px 0;
+        background:
+            linear-gradient(135deg, rgba(15, 35, 61, 0.94), rgba(12, 23, 39, 0.88)),
+            radial-gradient(circle at 92% 12%, rgba(90, 169, 255, 0.18), transparent 15rem);
+        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.22);
+    }
+
+    .gpt-game-plan-card h3 {
+        margin: 0 0 8px 0;
+        color: #fffaf0;
+        font-size: 1.45rem;
+    }
+
+    .gpt-game-plan-card p {
+        margin: 0;
+        color: var(--park-text-muted);
+        font-size: 1.01rem;
+        line-height: 1.58;
+    }
+
     div[data-testid="stMetric"] {
         background: rgba(13, 29, 49, 0.76);
         border: 1px solid rgba(165, 190, 220, 0.24);
@@ -978,6 +1003,213 @@ def recommendation_context(current_wait, same_hour_avg, next_hour_avg, is_open):
         return f"{diff:.0f} min above normal"
 
     return "Much higher than normal"
+
+
+# -----------------------------
+# GPT planning helpers
+# -----------------------------
+def clean_for_json(value):
+    if pd.isna(value):
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+
+    if hasattr(value, "item"):
+        try:
+            value = value.item()
+        except Exception:
+            pass
+
+    return value
+
+
+def get_today_park_close_hour():
+    # Matches the current app's in-park-hours logic: Friday opens earlier, but close is 9 PM.
+    return 21
+
+
+def build_gpt_game_plan_payload(best, comparison, hourly_avg):
+    now = pd.Timestamp.now(tz=EASTERN_TZ)
+    current_hour = now.hour
+    close_hour = get_today_park_close_hour()
+
+    open_comparison = comparison[
+        (comparison["is_open"] == True) &
+        (comparison["wait_time"].notna())
+    ].copy()
+
+    top_now = open_comparison[
+        open_comparison["difference_vs_same_hour"].notna()
+    ].sort_values("difference_vs_same_hour").head(5)
+
+    wait_candidates = open_comparison[
+        (open_comparison["next_hour_avg"].notna()) &
+        (open_comparison["next_hour_avg"] <= open_comparison["wait_time"] - 15)
+    ].sort_values("next_hour_avg").head(5)
+
+    upcoming_hours = []
+    for hour in range(current_hour + 1, close_hour):
+        hour_df = hourly_avg[hourly_avg["collection_hour_eastern"] == hour].copy()
+
+        if hour_df.empty:
+            continue
+
+        hour_df = hour_df.sort_values("historical_hour_avg").head(5)
+
+        upcoming_hours.append({
+            "hour_label": format_hour(hour),
+            "lowest_typical_waits": [
+                {
+                    "ride_name": clean_for_json(row["ride_name"]),
+                    "avg_wait": round(float(row["historical_hour_avg"]), 1),
+                    "samples": int(row["samples"]),
+                }
+                for _, row in hour_df.iterrows()
+            ],
+        })
+
+    payload = {
+        "park": selected_park,
+        "generated_at_eastern": now.strftime("%I:%M %p").lstrip("0"),
+        "current_hour_label": format_hour(current_hour),
+        "park_close_label": format_hour(close_hour),
+        "best_move_from_existing_logic": {
+            "land_name": clean_for_json(best.get("land_name")),
+            "ride_name": clean_for_json(best.get("ride_name")),
+            "current_wait": clean_for_json(best.get("wait_time")),
+            "same_hour_avg": clean_for_json(best.get("same_hour_avg")),
+            "next_hour_avg": clean_for_json(best.get("next_hour_avg")),
+            "thirty_day_avg": clean_for_json(best.get("overall_avg_wait")),
+            "difference_vs_same_hour": clean_for_json(best.get("difference_vs_same_hour")),
+            "difference_vs_thirty_day": clean_for_json(best.get("difference_vs_overall")),
+            "recommendation": clean_for_json(best.get("recommendation")),
+            "context": clean_for_json(best.get("context")),
+        },
+        "top_current_opportunities": [
+            {
+                "land_name": clean_for_json(row["land_name"]),
+                "ride_name": clean_for_json(row["ride_name"]),
+                "current_wait": clean_for_json(row["wait_time"]),
+                "same_hour_avg": clean_for_json(row["same_hour_avg"]),
+                "next_hour_avg": clean_for_json(row["next_hour_avg"]),
+                "thirty_day_avg": clean_for_json(row["overall_avg_wait"]),
+                "difference_vs_same_hour": clean_for_json(row["difference_vs_same_hour"]),
+                "recommendation": clean_for_json(row["recommendation"]),
+                "context": clean_for_json(row["context"]),
+            }
+            for _, row in top_now.iterrows()
+        ],
+        "rides_that_may_be_better_next_hour": [
+            {
+                "land_name": clean_for_json(row["land_name"]),
+                "ride_name": clean_for_json(row["ride_name"]),
+                "current_wait": clean_for_json(row["wait_time"]),
+                "next_hour_avg": clean_for_json(row["next_hour_avg"]),
+                "same_hour_avg": clean_for_json(row["same_hour_avg"]),
+                "thirty_day_avg": clean_for_json(row["overall_avg_wait"]),
+            }
+            for _, row in wait_candidates.iterrows()
+        ],
+        "upcoming_low_wait_windows_until_close": upcoming_hours[:6],
+    }
+
+    return payload
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def generate_gpt_game_plan(payload_json):
+    if "OPENAI_API_KEY" not in st.secrets:
+        return None
+
+    api_key = st.secrets["OPENAI_API_KEY"]
+    model = st.secrets.get("OPENAI_MODEL", "gpt-4o-mini")
+    payload = json.loads(payload_json)
+
+    prompt = f"""
+You are a concise theme park planning assistant inside a Streamlit wait-time dashboard.
+
+Use only the JSON data below. Do not invent rides, waits, park hours, or recommendations.
+
+The existing app logic already picked the best move. Your job is to explain that choice and turn the current wait, same-hour average, next-hour average, and 30-day average into a practical mini game plan from now until close.
+
+Rules:
+- Write 2-4 short sentences.
+- Start with the best move now.
+- Then mention whether the user should ride now, wait, or watch specific rides for later.
+- End with a simple close-out strategy.
+- Avoid sounding too certain. Use phrases like "based on the current signal," "if this pattern holds," or "worth watching."
+- Do not mention Bowser Jr. Challenge.
+- Do not mention excluded rides.
+- Do not recommend rides that are closed.
+- Do not use markdown bullets.
+- Bold ride names only.
+- Keep it fun! Its a theme park after all
+
+JSON data:
+{json.dumps(payload, indent=2)}
+"""
+
+    request_payload = {
+        "model": model,
+        "input": prompt,
+        "max_output_tokens": 180,
+    }
+
+    response = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=request_payload,
+        timeout=20,
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    if data.get("output_text"):
+        return data["output_text"].strip()
+
+    # Fallback parser for Responses API payloads that return text in output content blocks.
+    text_parts = []
+    for item in data.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") in ["output_text", "text"] and content.get("text"):
+                text_parts.append(content["text"])
+
+    if text_parts:
+        return " ".join(text_parts).strip()
+
+    return None
+
+
+def render_gpt_game_plan(best, comparison, hourly_avg):
+    payload = build_gpt_game_plan_payload(best, comparison, hourly_avg)
+    payload_json = json.dumps(payload, sort_keys=True, default=str)
+
+    try:
+        game_plan = generate_gpt_game_plan(payload_json)
+    except Exception as e:
+        st.info("GPT game plan could not load right now, but the existing Best Move logic is still working.")
+        with st.expander("GPT error details"):
+            st.exception(e)
+        return
+
+    if not game_plan:
+        st.info("Add OPENAI_API_KEY to Streamlit secrets to show the GPT game plan.")
+        return
+
+    st.markdown(
+        f"""
+        <div class="gpt-game-plan-card">
+            <div class="eyebrow">AI park coach</div>
+            <h3>Game plan from now until close</h3>
+            <p>{html.escape(game_plan)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 
@@ -1838,6 +2070,8 @@ if not open_opportunity_df.empty:
         """,
         unsafe_allow_html=True,
     )
+
+    render_gpt_game_plan(best, comparison, hourly_avg)
 else:
     st.info("No open rides have enough same-hour history for an opportunity score right now.")
 
